@@ -127,6 +127,20 @@ async function run(command: string, args: string[], input?: string, allowFailure
   return result;
 }
 
+async function runInteractive(command: string, args: string[]): Promise<void> {
+  console.log(`\n> ${command} ${args.join(" ")}`);
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, { stdio: "inherit" });
+    child.on("error", (error) => {
+      reject(error);
+    });
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} exited with status ${code ?? "unknown"}`));
+    });
+  });
+}
+
 export function initialConfig(options: Options, account: Account): string {
   return `${JSON.stringify({
     $schema: "node_modules/wrangler/config-schema.json",
@@ -297,13 +311,17 @@ async function finalizeDeployment(options: Options): Promise<void> {
   let origin = configuredOrigin(config);
   if (origin === null) throw new Error(`${CONFIG_PATH} has no valid APP_BASE_URL.`);
   if (origin === BOOTSTRAP_ORIGIN) {
-    const firstDeploy = await run("npx", ["wrangler", "deploy", "--strict", "--config", CONFIG_PATH], undefined, true);
-    if (firstDeploy.exitCode !== 0) {
-      if (workersDevRegistrationRequired(firstDeploy)) {
-        const accountId = configValue(config, "account_id");
-        if (accountId === null) throw new Error(`${CONFIG_PATH} is missing account_id.`);
-        throw new Error(`This Cloudflare account needs a workers.dev subdomain before its first Worker can be deployed. Open https://dash.cloudflare.com/${accountId}/workers/onboarding, register the account subdomain, then rerun npm run setup -- --resume.`);
+    const deployArgs = ["wrangler", "deploy", "--strict", "--config", CONFIG_PATH];
+    let firstDeploy = await run("npx", deployArgs, undefined, true);
+    if (firstDeploy.exitCode !== 0 && workersDevRegistrationRequired(firstDeploy)) {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new Error("This Cloudflare account needs a workers.dev subdomain before its first Worker can be deployed. Rerun setup in an interactive terminal so Wrangler can register it.");
       }
+      console.log("\nCloudflare needs a one-time account subdomain. Continuing interactively with Wrangler; choose an available workers.dev name when prompted.");
+      await runInteractive("npx", deployArgs);
+      firstDeploy = await run("npx", deployArgs, undefined, true);
+    }
+    if (firstDeploy.exitCode !== 0) {
       throw new Error(`npx exited with status ${firstDeploy.exitCode}`);
     }
     origin = deployedOrigin(`${firstDeploy.stdout}\n${firstDeploy.stderr}`);

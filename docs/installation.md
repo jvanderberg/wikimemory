@@ -56,8 +56,9 @@ the exact Worker, D1, and KV names and asks for confirmation. It then:
 
 On a Cloudflare account that has never deployed a Worker, Cloudflare first requires
 an account-wide `workers.dev` subdomain. The installer detects that condition before
-creating D1 or KV and prints the exact Cloudflare onboarding URL. Register the
-subdomain there, then continue with `npm run setup -- --resume`.
+creating D1 or KV, reconnects Wrangler directly to the terminal, and lets Wrangler
+prompt for and register an available subdomain. Setup then continues automatically.
+Non-interactive setup stops before creating storage and asks to be rerun in a terminal.
 
 Remote migrations are uploaded as one atomic file per migration because D1's query
 endpoint cannot reliably parse compound trigger bodies. Each uploaded file includes
