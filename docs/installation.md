@@ -46,13 +46,18 @@ Before changing anything, the installer displays the active Cloudflare identity 
 the exact Worker, D1, and KV names and asks for confirmation. It then:
 
 1. creates an ignored `wrangler.production.jsonc`;
-2. creates and binds D1 and KV;
-3. applies remote migrations;
-4. deploys the Worker and discovers its `workers.dev` origin;
+2. confirms that the requested remote names are unused;
+3. deploys a bootstrap Worker and discovers its `workers.dev` origin;
+4. creates and binds D1 and KV, then applies the remote migrations;
 5. generates a random one-time setup value, stores only its SHA-256 hash as a
    Cloudflare Worker secret, and redeploys with the canonical origin;
 6. verifies both `/health` and the D1-backed `/ready` check; and
 7. prints the one-time passkey setup URL and client commands.
+
+On a Cloudflare account that has never deployed a Worker, Cloudflare first requires
+an account-wide `workers.dev` subdomain. The installer detects that condition before
+creating D1 or KV and prints the exact Cloudflare onboarding URL. Register the
+subdomain there, then continue with `npm run setup -- --resume`.
 
 Remote migrations are uploaded as one atomic file per migration because D1's query
 endpoint cannot reliably parse compound trigger bodies. Each uploaded file includes
@@ -123,6 +128,9 @@ memory and cannot be recovered. For controlled automation,
 always come from recorded resource IDs and names, never defaults or uninstall
 arguments. Progress is recorded after each successful deletion so an interrupted
 uninstall can be rerun without repeating completed destructive steps.
+A partial installation where the Worker was never deployed is treated as an
+already-complete Worker deletion, allowing its recorded KV and D1 cleanup to
+continue.
 
 ## Connect Codex CLI
 

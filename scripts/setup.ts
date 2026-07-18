@@ -262,6 +262,12 @@ export function deploymentListIndicatesExisting(result: CommandResult): boolean 
   throw new Error("Could not verify whether the target Worker already exists.");
 }
 
+export function workersDevRegistrationRequired(result: CommandResult): boolean {
+  const diagnostic = `${result.stdout}\n${result.stderr}`.toLowerCase();
+  return diagnostic.includes("register a workers.dev subdomain") ||
+    diagnostic.includes("workers/onboarding");
+}
+
 async function existingResourceNames(): Promise<{ databases: Set<string>; namespaces: Set<string> }> {
   const [d1, kv] = await Promise.all([
     run("npx", ["wrangler", "d1", "list", "--json", "--config", CONFIG_PATH]),
@@ -287,22 +293,30 @@ async function ensureResources(options: Options): Promise<void> {
 }
 
 async function finalizeDeployment(options: Options): Promise<void> {
-  await ensureResources(options);
   let config = await readFile(CONFIG_PATH, "utf8");
-  const boundDatabaseName = bindingProperty(config, "DB", "database_name");
-  if (boundDatabaseName === null) throw new Error(`${CONFIG_PATH} has a DB binding without a database_name.`);
-  await applyRemoteMigrations(boundDatabaseName);
-  config = await readFile(CONFIG_PATH, "utf8");
   let origin = configuredOrigin(config);
   if (origin === null) throw new Error(`${CONFIG_PATH} has no valid APP_BASE_URL.`);
   if (origin === BOOTSTRAP_ORIGIN) {
-    const firstDeploy = await run("npx", ["wrangler", "deploy", "--strict", "--config", CONFIG_PATH]);
+    const firstDeploy = await run("npx", ["wrangler", "deploy", "--strict", "--config", CONFIG_PATH], undefined, true);
+    if (firstDeploy.exitCode !== 0) {
+      if (workersDevRegistrationRequired(firstDeploy)) {
+        const accountId = configValue(config, "account_id");
+        if (accountId === null) throw new Error(`${CONFIG_PATH} is missing account_id.`);
+        throw new Error(`This Cloudflare account needs a workers.dev subdomain before its first Worker can be deployed. Open https://dash.cloudflare.com/${accountId}/workers/onboarding, register the account subdomain, then rerun npm run setup -- --resume.`);
+      }
+      throw new Error(`npx exited with status ${firstDeploy.exitCode}`);
+    }
     origin = deployedOrigin(`${firstDeploy.stdout}\n${firstDeploy.stderr}`);
     if (origin === null) throw new Error(`Could not discover the workers.dev URL. Put the exact origin in APP_BASE_URL inside ${CONFIG_PATH}, then rerun with --resume.`);
     config = await readFile(CONFIG_PATH, "utf8");
     if (!config.includes(BOOTSTRAP_ORIGIN)) throw new Error(`Could not safely update APP_BASE_URL in ${CONFIG_PATH}.`);
     await writeFile(CONFIG_PATH, config.replace(BOOTSTRAP_ORIGIN, origin), "utf8");
   }
+  await ensureResources(options);
+  config = await readFile(CONFIG_PATH, "utf8");
+  const boundDatabaseName = bindingProperty(config, "DB", "database_name");
+  if (boundDatabaseName === null) throw new Error(`${CONFIG_PATH} has a DB binding without a database_name.`);
+  await applyRemoteMigrations(boundDatabaseName);
   const secret = bootstrapSecret();
   await run("npx", ["wrangler", "deploy", "--strict", "--config", CONFIG_PATH]);
   await run("npx", ["wrangler", "secret", "put", "SETUP_TOKEN_HASH", "--config", CONFIG_PATH], secret.hash);

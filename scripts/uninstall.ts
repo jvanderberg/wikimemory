@@ -3,7 +3,7 @@ import { readFile, unlink, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { bindingProperty, configValue } from "./setup.ts";
+import { bindingProperty, configValue, deploymentListIndicatesExisting } from "./setup.ts";
 
 const CONFIG_PATH = "wrangler.production.jsonc";
 const STATE_PATH = ".wikimemory-installer.json";
@@ -28,6 +28,12 @@ interface UninstallProgress {
   workerDeleted: boolean;
   kvDeleted: boolean;
   databaseDeleted: boolean;
+}
+
+interface CommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
 }
 
 export function parseUninstallOptions(args: string[]): UninstallOptions {
@@ -65,18 +71,31 @@ function summary(targets: UninstallTargets): string {
   return `Cloudflare uninstall targets:\n  Account ID: ${targets.accountId}\n  Worker: ${targets.workerName}\n  D1 database: ${targets.databaseName} (${targets.databaseId})\n  KV namespace ID: ${targets.kvNamespaceId}`;
 }
 
-async function run(args: string[]): Promise<void> {
+async function run(args: string[], allowFailure = false): Promise<CommandResult> {
   console.log(`\n> npx ${args.join(" ")}`);
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn("npx", args, { stdio: "inherit" });
+  const result = await new Promise<CommandResult>((resolve, reject) => {
+    const child = spawn("npx", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      process.stdout.write(chunk);
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+      process.stderr.write(chunk);
+    });
     child.on("error", (error) => {
       reject(error);
     });
     child.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`npx exited with status ${code ?? "unknown"}`));
+      resolve({ stdout, stderr, exitCode: code ?? -1 });
     });
   });
+  if (result.exitCode !== 0 && !allowFailure) throw new Error(`npx exited with status ${result.exitCode}`);
+  return result;
 }
 
 async function requireExactName(workerName: string, supplied: string | null): Promise<void> {
@@ -131,7 +150,12 @@ async function main(): Promise<void> {
   const progress = await loadProgress(targets);
   await saveProgress(progress);
   if (!progress.workerDeleted) {
-    await run(["wrangler", "delete", targets.workerName, "--force", "--config", CONFIG_PATH]);
+    const probe = await run(["wrangler", "deployments", "list", "--name", targets.workerName, "--json", "--config", CONFIG_PATH], true);
+    if (deploymentListIndicatesExisting(probe)) {
+      await run(["wrangler", "delete", targets.workerName, "--force", "--config", CONFIG_PATH]);
+    } else {
+      console.log(`\nWorker ${targets.workerName} is already absent; continuing partial-install cleanup.`);
+    }
     progress.workerDeleted = true;
     await saveProgress(progress);
   }

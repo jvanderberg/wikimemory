@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { bindingProperty, configuredOrigin, deployedOrigin, deploymentListIndicatesExisting, handoff, initialConfig, migrationBundle, parseOptions } from "./setup.ts";
+import { bindingProperty, configuredOrigin, deployedOrigin, deploymentListIndicatesExisting, handoff, initialConfig, migrationBundle, parseOptions, workersDevRegistrationRequired } from "./setup.ts";
 import { parseUninstallOptions, resolveUninstallTargets } from "./uninstall.ts";
 
 await describe("guided installer", async () => {
@@ -24,6 +24,15 @@ await describe("guided installer", async () => {
   await it("discovers only workers.dev deployment origins", () => {
     assert.equal(deployedOrigin("Deployed https://wikimemory.owner.workers.dev"), "https://wikimemory.owner.workers.dev");
     assert.equal(deployedOrigin("https://example.com"), null);
+  });
+
+  await it("recognizes the first-Worker subdomain onboarding requirement", () => {
+    assert.equal(workersDevRegistrationRequired({
+      stdout: "",
+      stderr: "You can either deploy to routes, or register a workers.dev subdomain here: https://dash.cloudflare.com/account/workers/onboarding",
+      exitCode: 1
+    }), true);
+    assert.equal(workersDevRegistrationRequired({ stdout: "", stderr: "unrelated deployment failure", exitCode: 1 }), false);
   });
 
   await it("distinguishes a missing Worker from an existing version-only Worker", () => {
