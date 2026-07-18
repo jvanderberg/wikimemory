@@ -54,6 +54,11 @@ the exact Worker, D1, and KV names and asks for confirmation. It then:
 6. verifies both `/health` and the D1-backed `/ready` check; and
 7. prints the one-time passkey setup URL and client commands.
 
+Remote migrations are uploaded as one atomic file per migration because D1's query
+endpoint cannot reliably parse compound trigger bodies. Each uploaded file includes
+its `d1_migrations` record, so an interrupted run either applies the entire migration
+or none of it. `npm run db:migrate:production` uses the same path for later updates.
+
 Open that setup URL on a phone or computer with a passkey-capable browser. The raw
 setup value is in the URL fragment, so it is not sent in the initial HTTP request or
 normal access logs. It is held in page memory only long enough to request passkey

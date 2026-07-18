@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { bindingProperty, configuredOrigin, deployedOrigin, deploymentListIndicatesExisting, handoff, initialConfig, parseOptions } from "./setup.ts";
+import { bindingProperty, configuredOrigin, deployedOrigin, deploymentListIndicatesExisting, handoff, initialConfig, migrationBundle, parseOptions } from "./setup.ts";
 import { parseUninstallOptions, resolveUninstallTargets } from "./uninstall.ts";
 
 await describe("guided installer", async () => {
@@ -36,6 +36,12 @@ await describe("guided installer", async () => {
     const config = `{"d1_databases":[{"binding":"DB","database_name":"custom-memory","database_id":"id"}]}`;
     assert.equal(bindingProperty(config, "DB", "database_name"), "custom-memory");
     assert.equal(bindingProperty(config, "OAUTH_KV", "id"), null);
+  });
+
+  await it("bundles each compound migration with its atomic migration record", () => {
+    const bundle = migrationBundle("CREATE TRIGGER example AFTER INSERT ON items BEGIN SELECT 1; END;\n", "0001_owner's.sql");
+    assert.match(bundle, /CREATE TRIGGER[\s\S]+BEGIN SELECT 1; END;/u);
+    assert.match(bundle, /INSERT INTO d1_migrations\(name\) VALUES \('0001_owner''s.sql'\);/u);
   });
 
   await it("prints complete read-write client handoff without exposing the hash", () => {

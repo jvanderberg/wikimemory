@@ -9,7 +9,7 @@
     "uninstall": "node --experimental-strip-types scripts/uninstall.ts",
     "db:migrate:local": "wrangler d1 migrations apply wikimemory --local",
     "db:migrate:remote": "wrangler d1 migrations apply wikimemory --remote",
-    "db:migrate:production": "wrangler d1 migrations apply wikimemory --remote --config wrangler.production.jsonc",
+    "db:migrate:production": "node --experimental-strip-types scripts/migrate-remote.ts",
     "deploy": "wrangler deploy --config wrangler.production.jsonc",
     "test": "vitest run && npm run test:installer",
     "test:installer": "node --experimental-strip-types --test scripts/setup.node-test.ts",

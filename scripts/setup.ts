@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { access, readFile, unlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -26,6 +28,7 @@ const STATE_SCHEMA = z.object({
   databaseName: z.string(),
   kvName: z.string()
 });
+const D1_QUERY_SCHEMA = z.array(z.object({ results: z.array(z.object({ name: z.string() })) }));
 
 export interface Options {
   recover: boolean;
@@ -161,6 +164,30 @@ export function bindingProperty(config: string, binding: "DB" | "OAUTH_KV", prop
   return object === undefined ? null : configValue(object, property);
 }
 
+export function migrationBundle(sql: string, migrationName: string): string {
+  const escapedName = migrationName.replaceAll("'", "''");
+  return `${sql.trimEnd()}\n\nINSERT INTO d1_migrations(name) VALUES ('${escapedName}');\n`;
+}
+
+export async function applyRemoteMigrations(databaseName: string): Promise<void> {
+  await run("npx", ["wrangler", "d1", "execute", databaseName, "--remote", "--config", CONFIG_PATH, "--command", "CREATE TABLE IF NOT EXISTS d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)"]);
+  const listed = await run("npx", ["wrangler", "d1", "execute", databaseName, "--remote", "--config", CONFIG_PATH, "--json", "--command", "SELECT name FROM d1_migrations ORDER BY id"]);
+  const applied = new Set(D1_QUERY_SCHEMA.parse(JSON.parse(listed.stdout)).flatMap((result) => result.results.map((row) => row.name)));
+  const migrations = (await readdir("migrations")).filter((name) => /^\d+.*\.sql$/u.test(name)).sort();
+  for (const migration of migrations) {
+    if (applied.has(migration)) continue;
+    const temporary = await mkdtemp(join(tmpdir(), "wikimemory-d1-migration-"));
+    if (!temporary.startsWith(`${tmpdir()}/wikimemory-d1-migration-`)) throw new Error("Unexpected migration temporary path");
+    try {
+      const bundlePath = join(temporary, migration);
+      await writeFile(bundlePath, migrationBundle(await readFile(join("migrations", migration), "utf8"), migration), "utf8");
+      await run("npx", ["wrangler", "d1", "execute", databaseName, "--remote", "--config", CONFIG_PATH, "--file", bundlePath]);
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
+    }
+  }
+}
+
 async function question(text: string): Promise<string> {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   const answer = await prompt.question(text);
@@ -264,7 +291,7 @@ async function finalizeDeployment(options: Options): Promise<void> {
   let config = await readFile(CONFIG_PATH, "utf8");
   const boundDatabaseName = bindingProperty(config, "DB", "database_name");
   if (boundDatabaseName === null) throw new Error(`${CONFIG_PATH} has a DB binding without a database_name.`);
-  await run("npx", ["wrangler", "d1", "migrations", "apply", boundDatabaseName, "--remote", "--config", CONFIG_PATH]);
+  await applyRemoteMigrations(boundDatabaseName);
   config = await readFile(CONFIG_PATH, "utf8");
   let origin = configuredOrigin(config);
   if (origin === null) throw new Error(`${CONFIG_PATH} has no valid APP_BASE_URL.`);
