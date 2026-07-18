@@ -1,0 +1,44 @@
+{
+  "name": "wikimemory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run db:migrate:local && wrangler dev",
+    "setup": "node --experimental-strip-types scripts/setup.ts",
+    "uninstall": "node --experimental-strip-types scripts/uninstall.ts",
+    "db:migrate:local": "wrangler d1 migrations apply wikimemory --local",
+    "db:migrate:remote": "wrangler d1 migrations apply wikimemory --remote",
+    "db:migrate:production": "wrangler d1 migrations apply wikimemory --remote --config wrangler.production.jsonc",
+    "deploy": "wrangler deploy --config wrangler.production.jsonc",
+    "test": "vitest run && npm run test:installer",
+    "test:installer": "node --experimental-strip-types --test scripts/setup.node-test.ts",
+    "test:passkey": "node --experimental-strip-types scripts/passkey-e2e.ts",
+    "test:watch": "vitest",
+    "smoke:local": "node --experimental-strip-types scripts/smoke-local.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json && tsc -p tsconfig.scripts.json",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "0.8.2",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@simplewebauthn/server": "^13.2.2",
+    "agents": "0.17.4",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.18.6",
+    "@cloudflare/workers-types": "5.20260718.1",
+    "@eslint/js": "9.39.2",
+    "@types/node": "^22.20.1",
+    "eslint": "9.39.2",
+    "playwright-core": "^1.61.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.53.1",
+    "vitest": "4.1.10",
+    "wrangler": "4.112.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

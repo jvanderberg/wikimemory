@@ -1,0 +1,131 @@
+# MCP contract
+
+## Transport and authorization
+
+The endpoint and canonical resource URI are `https://<worker-host>/mcp` using
+Streamable HTTP. It supports the current MCP protocol version selected by the pinned
+SDK and rejects unsupported versions cleanly. An unauthenticated request returns 401
+with `WWW-Authenticate` pointing to protected-resource metadata. Authorization and
+token requests validate an exact RFC 8707 `resource` value matching that URI.
+
+V1 supports Dynamic Client Registration and explicitly pre-registered client IDs.
+Client ID Metadata Documents are deferred until their SSRF-safe fetch behavior is
+verified on the chosen Cloudflare library/runtime. Codex and Claude acceptance
+fixtures cover automatic DCR plus their supported explicit-client configuration.
+
+Normal agent connections request `memory:read memory:write`. An administrative MCP
+connection explicitly requests `memory:read memory:write memory:admin`; V1 does not
+rely on incremental scope challenges.
+
+All tools return a short human-readable content item plus equivalent structured
+content. Error results contain a stable `code`, safe message, request ID, and
+code-specific fields. They never echo secret candidates or OAuth material.
+
+## Tools
+
+### `orient` — `memory:read`, read-only
+
+Returns the current `now` page, active project summaries, recent revision summaries,
+and lint counts in a bounded response.
+
+Input: optional project limit and recent-event limit within server caps.
+
+### `recall` — `memory:read`, read-only
+
+Searches current content. Input provides exactly one of a text `query` or an exact
+`sourceUrl`, plus an optional limit. Exact source-URL lookup uses indexed current
+metadata and is the preferred duplicate check before ingesting a source. Output:
+ranked slug/type/title/summary snippets and a normalized 0–1 relevance score.
+Text queries are safe tokenized plain text: quotes, `OR`, and leading minus have no
+operator meaning. Exact titles and contiguous token phrases receive deterministic
+boosts over repetitive term frequency. Symbol-only queries use a bounded literal
+fallback so stored emoji can be recalled.
+revision ID, provenance/trust label, and next opaque versioned cursor. Search
+pagination is best-effort over current state and may change when new revisions land;
+ranking uses deterministic document-ID tie-breaking within one response.
+
+### `get` — `memory:read`, read-only
+
+Gets one current or historical revision. Input: slug, optional revision ID, opaque
+cursor, and maximum characters (maximum 32 KiB). Output separates trusted server
+metadata from the requested Markdown chunk and includes an opaque continuation
+cursor. Chunks are Unicode code-point safe and prefer a nearby whitespace boundary;
+an unbroken token may still be split to preserve the hard response bound. Link target
+slugs are immutable revision data, while a previously unresolved `targetDocumentId`
+is resolved dynamically when the target now exists.
+
+### `index` — `memory:read`, read-only
+
+Lists current document summaries by type with optional project/status/tag filters and
+cursor pagination.
+
+### `history` — `memory:read`, read-only
+
+Lists revision headers for one slug: revision ID/number, time, authenticated actor,
+client, agent label, reason, restoration source, and content hash. Bodies are not
+returned.
+
+### `lint` — `memory:read`, read-only
+
+Reports bounded groups: unresolved references, contradictions, non-system orphans,
+missing summaries, invalid standard metadata, and stale active projects.
+
+### `ingest` — `memory:write`, mutating
+
+Creates or revises a document. Required common fields: operation ID and reason.
+Operation IDs are unique opaque caller-generated strings of 1–200 characters, not
+necessarily UUIDs. Their purpose is idempotent replay, not identity or ordering.
+
+Create input requires type, slug, title, and body and has no expected revision.
+Update input requires slug and expected revision ID, plus a patch for snapshot fields,
+metadata, and links. Agent label is optional and untrusted provenance.
+
+Success returns document and revision IDs/numbers plus warnings. Conflict returns the
+current revision ID/number and no content.
+
+`singletonMetadata` accepts standard or custom lowercase keys and declares
+set/remove singleton behavior. `tags` is the simplified multivalued `tag` field.
+Once a custom key has stored values, its cardinality cannot be changed implicitly.
+
+### `link` — `memory:write`, mutating
+
+Convenience mutation for one explicit link. Requires operation ID, source slug,
+expected revision ID, kind, target slug, add/remove action, and reason. It creates a
+full new source revision through the same ingest service.
+
+### `restore_preview` — `memory:admin`, read-only
+
+Compares a historical target revision with current state and returns bounded field,
+metadata, and link differences plus the expected current revision ID needed to apply.
+
+### `restore_apply` — `memory:admin`, mutating/destructive annotation
+
+Requires operation ID, slug, target revision ID, expected current revision ID, and
+reason. It appends a compensating revision. It never deletes history.
+
+Purge, export, and session administration are intentionally not MCP tools in
+V1. They remain owner-controlled web/admin actions.
+
+## Resources
+
+Resources are additive convenience, not the compatibility baseline:
+
+- `wikimemory://now`
+- `wikimemory://docs/{slug}`
+- `wikimemory://docs/{slug}/revisions/{revision_id}`
+
+Resource templates enforce the same authorization and output bounds as tools.
+
+## Tool selection guidance
+
+Descriptions must say when not to use a tool. `recall` is preferred over `index` for
+task context. `get` follows promising recall results. `ingest` is for durable outcomes,
+not scratchpads or chat transcripts. `restore_apply` is used only after presenting a
+preview to the user or responding to an explicit restore request.
+
+## Compatibility tests
+
+Contract fixtures cover MCP initialization, discovery, tool schemas, resources,
+read/write/admin scopes, OAuth challenge metadata, pagination, bounded output,
+conflicts, idempotent retry, secret rejection, and structured errors. Manual release
+checks cover current Codex CLI, Claude Code, Claude web, and Claude mobile.

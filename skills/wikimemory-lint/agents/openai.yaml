@@ -1,0 +1,4 @@
+interface:
+  display_name: "Wikimemory Lint"
+  short_description: "Audit and improve Wikimemory health"
+  default_prompt: "Use $wikimemory-lint to inspect this memory store for health issues."

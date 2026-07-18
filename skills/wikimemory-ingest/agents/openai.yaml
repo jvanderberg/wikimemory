@@ -1,0 +1,4 @@
+interface:
+  display_name: "Wikimemory Ingest"
+  short_description: "Store durable outcomes in Wikimemory"
+  default_prompt: "Use $wikimemory-ingest to file the durable outcome from this work."

@@ -1,0 +1,14 @@
+node_modules/
+.wrangler/
+wrangler.production.jsonc
+.wikimemory-installer.json
+.wikimemory-uninstall.json
+dist/
+coverage/
+playwright-report/
+test-results/
+.dev.vars
+.env
+.env.*
+!.env.example
+*.local

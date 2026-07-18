@@ -1,0 +1,4 @@
+interface:
+  display_name: "Install Wikimemory"
+  short_description: "Deploy and connect a personal Wikimemory"
+  default_prompt: "Use $wikimemory-install to deploy or connect my personal Wikimemory."

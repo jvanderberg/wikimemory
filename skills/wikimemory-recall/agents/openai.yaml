@@ -1,0 +1,4 @@
+interface:
+  display_name: "Wikimemory Recall"
+  short_description: "Recall durable context before substantial work"
+  default_prompt: "Use $wikimemory-recall to retrieve relevant durable context before starting this task."
