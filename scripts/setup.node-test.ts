@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { bindingProperty, configuredOrigin, deployedOrigin, handoff, initialConfig, parseOptions } from "./setup.ts";
+import { bindingProperty, configuredOrigin, deployedOrigin, deploymentListIndicatesExisting, handoff, initialConfig, parseOptions } from "./setup.ts";
 import { parseUninstallOptions, resolveUninstallTargets } from "./uninstall.ts";
 
 await describe("guided installer", async () => {
@@ -24,6 +24,12 @@ await describe("guided installer", async () => {
   await it("discovers only workers.dev deployment origins", () => {
     assert.equal(deployedOrigin("Deployed https://wikimemory.owner.workers.dev"), "https://wikimemory.owner.workers.dev");
     assert.equal(deployedOrigin("https://example.com"), null);
+  });
+
+  await it("distinguishes a missing Worker from an existing version-only Worker", () => {
+    assert.equal(deploymentListIndicatesExisting({ stdout: "", stderr: "This Worker does not exist [code: 10007]", exitCode: 1 }), false);
+    assert.equal(deploymentListIndicatesExisting({ stdout: "[]", stderr: "", exitCode: 0 }), true);
+    assert.throws(() => deploymentListIndicatesExisting({ stdout: "", stderr: "network failure", exitCode: 1 }));
   });
 
   await it("recovers the configured D1 name for resumable migrations", () => {

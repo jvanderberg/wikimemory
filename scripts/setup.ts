@@ -221,13 +221,17 @@ export function handoff(origin: string, rawToken: string): string {
 
 async function remoteWorkerExists(workerName: string): Promise<boolean> {
   const result = await run("npx", ["wrangler", "deployments", "list", "--name", workerName, "--json", "--config", CONFIG_PATH], undefined, true);
+  return deploymentListIndicatesExisting(result);
+}
+
+export function deploymentListIndicatesExisting(result: CommandResult): boolean {
   if (result.exitCode === 0) {
     const parsed = z.array(z.unknown()).safeParse(JSON.parse(result.stdout));
     if (!parsed.success) throw new Error("Wrangler returned an unexpected deployment-list response.");
     return true;
   }
   const diagnostic = `${result.stdout}\n${result.stderr}`.toLowerCase();
-  if (diagnostic.includes("10090")) return false;
+  if (diagnostic.includes("code: 10007") || diagnostic.includes("code: 10090")) return false;
   throw new Error("Could not verify whether the target Worker already exists.");
 }
 
