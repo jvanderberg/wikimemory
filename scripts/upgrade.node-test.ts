@@ -6,12 +6,14 @@ import { localConfig } from "./dev.ts";
 import type { ReleaseManifest } from "./upgrade.ts";
 import {
   compareSemanticVersions,
+  deploymentIsCurrent,
   parseProductionUpgradeConfig,
   parseUpgradeOptions,
   planMigrations,
   productionUpgradeConfig,
   validateReleaseManifest,
-  validateRemoteTargets
+  validateRemoteTargets,
+  verifyRelease
 } from "./upgrade.ts";
 
 const manifest = {
@@ -90,6 +92,57 @@ await describe("packaged upgrade", async () => {
     assert.equal(compareSemanticVersions("1.10.0", "1.9.9"), 1);
     assert.equal(compareSemanticVersions("0.9.9", "1.0.0"), -1);
     assert.throws(() => compareSemanticVersions("latest", "1.0.0"));
+  });
+
+  await it("recognizes a fully current deployment without redeploying", () => {
+    const pendingMigration = manifest.migrations.at(1);
+    assert.ok(pendingMigration);
+    assert.equal(deploymentIsCurrent(manifest.version, manifest, []), true);
+    assert.equal(deploymentIsCurrent("0.1.0", manifest, []), false);
+    assert.equal(deploymentIsCurrent(manifest.version, manifest, [pendingMigration]), false);
+  });
+
+  await it("retries post-deploy verification while Cloudflare propagates a new version", async () => {
+    let healthAttempts = 0;
+    const delays: number[] = [];
+    await verifyRelease(
+      record.origin,
+      manifest,
+      (input) => {
+        const url =
+          input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+        if (url.endsWith("/health")) {
+          healthAttempts += 1;
+          return Promise.resolve(
+            Response.json({
+              status: "ok",
+              service: "wikimemory",
+              version: healthAttempts === 1 ? "0.1.0" : manifest.version
+            })
+          );
+        }
+        if (url.endsWith("/ready")) {
+          return Promise.resolve(
+            Response.json({
+              status: "ready",
+              service: "wikimemory",
+              version: manifest.version,
+              schemaVersion: manifest.schemaVersion
+            })
+          );
+        }
+        if (url.includes("/.well-known/oauth-protected-resource/mcp")) {
+          return Promise.resolve(Response.json({ resource: `${record.origin}/mcp` }));
+        }
+        return Promise.resolve(new Response('<div id="root"></div>'));
+      },
+      (milliseconds) => {
+        delays.push(milliseconds);
+        return Promise.resolve();
+      }
+    );
+    assert.equal(healthAttempts, 2);
+    assert.deepEqual(delays, [250]);
   });
 
   await it("pins the package entrypoint, assets, account, and immutable resource IDs", () => {

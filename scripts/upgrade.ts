@@ -45,6 +45,9 @@ interface CommandResult {
   exitCode: number;
 }
 
+type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type Sleeper = (milliseconds: number) => Promise<void>;
+
 export interface RemoteTargets {
   accounts: Array<{ id: string }>;
   databases: Array<{ uuid: string; name: string }>;
@@ -109,6 +112,17 @@ export function compareSemanticVersions(left: string, right: string): number {
     if (difference !== 0) return Math.sign(difference);
   }
   return 0;
+}
+
+export function deploymentIsCurrent(
+  currentVersion: string,
+  manifest: ReleaseManifest,
+  pendingMigrations: ReleaseManifest["migrations"]
+): boolean {
+  return (
+    compareSemanticVersions(currentVersion, manifest.version) === 0 &&
+    pendingMigrations.length === 0
+  );
 }
 
 export function productionUpgradeConfig(record: DeploymentRecord, packageRoot: string): string {
@@ -218,35 +232,75 @@ async function confirmUpgrade(summary: string, automatic: boolean): Promise<void
   if (answer !== "y" && answer !== "yes") throw new Error("Cancelled");
 }
 
-async function verifyRelease(origin: string, manifest: ReleaseManifest): Promise<void> {
-  const health = await fetch(`${origin}/health`, { redirect: "error" });
-  const healthBody = z
-    .object({ status: z.literal("ok"), service: z.literal("wikimemory"), version: z.string() })
-    .parse(await health.json());
-  if (!health.ok || healthBody.version !== manifest.version)
-    throw new Error("Deployed Worker version verification failed");
-  const ready = await fetch(`${origin}/ready`, { redirect: "error" });
-  const readyBody = z
-    .object({
-      status: z.literal("ready"),
-      service: z.literal("wikimemory"),
-      version: z.string(),
-      schemaVersion: z.string()
-    })
-    .parse(await ready.json());
-  if (
-    !ready.ok ||
-    readyBody.version !== manifest.version ||
-    readyBody.schemaVersion !== manifest.schemaVersion
-  )
-    throw new Error("Deployed schema version verification failed");
-  const discovery = await fetch(`${origin}/.well-known/oauth-protected-resource/mcp`, {
-    redirect: "error"
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
   });
-  if (!discovery.ok) throw new Error("OAuth protected-resource discovery verification failed");
-  const app = await fetch(`${origin}/app`, { redirect: "error" });
-  if (!app.ok || !(await app.text()).includes('<div id="root"></div>'))
-    throw new Error("React application verification failed");
+}
+
+async function responseJson(response: Response, label: string): Promise<unknown> {
+  const text = await response.text();
+  if (!response.ok)
+    throw new Error(`${label} returned HTTP ${response.status}: ${text.slice(0, 300)}`);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label} returned non-JSON content`);
+  }
+}
+
+export async function verifyRelease(
+  origin: string,
+  manifest: ReleaseManifest,
+  fetcher: Fetcher = fetch,
+  sleeper: Sleeper = sleep,
+  attempts = 6
+): Promise<void> {
+  let finalError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const health = await fetcher(`${origin}/health`, { redirect: "error" });
+      const healthBody = z
+        .object({ status: z.literal("ok"), service: z.literal("wikimemory"), version: z.string() })
+        .parse(await responseJson(health, "Health endpoint"));
+      if (healthBody.version !== manifest.version) {
+        throw new Error(
+          `Health endpoint reports version ${healthBody.version}; expected ${manifest.version}`
+        );
+      }
+      const ready = await fetcher(`${origin}/ready`, { redirect: "error" });
+      const readyBody = z
+        .object({
+          status: z.literal("ready"),
+          service: z.literal("wikimemory"),
+          version: z.string(),
+          schemaVersion: z.string()
+        })
+        .parse(await responseJson(ready, "Readiness endpoint"));
+      if (
+        readyBody.version !== manifest.version ||
+        readyBody.schemaVersion !== manifest.schemaVersion
+      ) {
+        throw new Error(
+          `Readiness endpoint reports version ${readyBody.version} and schema ${readyBody.schemaVersion}; expected ${manifest.version} and ${manifest.schemaVersion}`
+        );
+      }
+      const discovery = await fetcher(`${origin}/.well-known/oauth-protected-resource/mcp`, {
+        redirect: "error"
+      });
+      if (!discovery.ok)
+        throw new Error(`OAuth protected-resource discovery returned HTTP ${discovery.status}`);
+      const app = await fetcher(`${origin}/app`, { redirect: "error" });
+      if (!app.ok || !(await app.text()).includes('<div id="root"></div>'))
+        throw new Error("React application verification failed");
+      return;
+    } catch (error) {
+      finalError = error;
+      if (attempt + 1 < attempts) await sleeper(250 * 2 ** attempt);
+    }
+  }
+  const detail = finalError instanceof Error ? finalError.message : "Unknown verification failure";
+  throw new Error(`Deployed release verification failed after ${attempts} attempts: ${detail}`);
 }
 
 export async function runUpgrade(args: string[]): Promise<void> {
@@ -325,6 +379,14 @@ export async function runUpgrade(args: string[]): Promise<void> {
     if (!health.ok) throw new Error("Current deployment health check failed");
     if (compareSemanticVersions(current, manifest.version) > 0)
       throw new Error(`Refusing to downgrade Wikimemory from ${current} to ${manifest.version}`);
+    if (deploymentIsCurrent(current, manifest, pending)) {
+      await verifyRelease(record.origin, manifest);
+      await writeDeploymentRecord({ ...record, installedVersion: manifest.version }, recordPath);
+      console.log(
+        `\nWikimemory ${manifest.version} is already ready. Reconciled the local deployment record without redeploying.`
+      );
+      return;
+    }
     await confirmUpgrade(
       `\nWikimemory upgrade\n  Account: ${record.accountId}\n  Worker: ${record.workerName}\n  D1: ${record.databaseName} (${record.databaseId})\n  KV: ${record.kvName} (${record.kvId})\n  Origin: ${record.origin}\n  Version: ${current} -> ${manifest.version}\n  Migrations: ${pending.map((item) => item.name).join(", ") || "none"}`,
       options.yes
