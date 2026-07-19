@@ -93,6 +93,31 @@ remote resources, and all uploads use Wrangler strict mode.
 reviewed the displayed defaults. The installer does not delete or replace an
 existing production configuration.
 
+## Planned packaged upgrades
+
+The target upgrade experience is:
+
+```sh
+npx wikimemory upgrade
+```
+
+This command is not published yet. It should work without a source checkout: load
+the existing deployment record, show the exact Cloudflare account and Worker/D1/KV
+targets plus current and target versions, require confirmation, apply the release's
+bundled migrations, deploy its bundled Worker and React assets, and verify health,
+readiness, OAuth discovery, and schema version. It must refuse resource-ID or account
+mismatches and must never rotate the setup secret, replace passkeys, seed fixtures,
+or delete memory during an ordinary upgrade.
+
+Until that package exists, maintainers perform the same sequence from a clean,
+verified checkout:
+
+```sh
+npm run build:web
+npm run db:migrate:production
+npx wrangler deploy --strict --config wrangler.production.jsonc
+```
+
 ## Passkey recovery
 
 Cloudflare account control is the recovery authority. From the original checkout

@@ -36,8 +36,10 @@ If a provisioning step fails after the config is created, rerun the documented
 Never work around a remote resource name collision by deploying over it.
 
 For lost-passkey recovery, use the documented `npm run setup -- --recover` workflow.
-It rotates the bootstrap hash and prints a one-use registration URL. It must not
-delete existing credentials or memory.
+It rotates the bootstrap hash and prints a one-use registration URL. Existing
+credentials remain active until the replacement verifies; successful recovery then
+replaces all old credentials and revokes browser sessions and MCP grants. It must
+not delete memory.
 
 For repeated deployment testing, run the documented uninstall preview before any
 deletion. Apply uninstall only after showing the exact config-recorded account,
@@ -45,3 +47,23 @@ Worker, D1, and KV targets and obtaining the exact Worker-name confirmation. Sta
 plainly that deleting D1 permanently destroys the remote memory.
 
 If production deployment is marked incomplete in the installation guide, stop after local setup or client connection and state the limitation rather than improvising an insecure path.
+
+## Update an existing instance
+
+1. Require a clean, verified repository checkpoint and the ignored
+   `wrangler.production.jsonc` from the original deployment.
+2. Read the config and show the exact account, Worker, D1 database, KV namespace,
+   and origin before changing remote state.
+3. Use Wrangler read-only checks to confirm that those resources still match the
+   recorded IDs and list pending D1 migrations.
+4. Build the web assets, run `npm run db:migrate:production`, then deploy with
+   `npx wrangler deploy --strict --config wrangler.production.jsonc`.
+5. Verify `/health`, D1-backed `/ready`, protected-resource discovery, the compiled
+   React shell, the new deployment version, and that no migrations remain.
+
+An ordinary update must not run `setup -- --resume` or `setup -- --recover`, rotate
+`SETUP_TOKEN_HASH`, replace passkeys, delete resources, or seed local fixture data.
+
+The planned packaged form of this workflow is `npx wikimemory upgrade`. Until that
+published CLI exists, do not claim it is available; use the repository commands
+above.
