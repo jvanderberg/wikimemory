@@ -123,7 +123,8 @@ export function productionUpgradeConfig(record: DeploymentRecord, packageRoot: s
       assets: {
         directory: join(packageRoot, "dist", "web"),
         binding: "ASSETS",
-        not_found_handling: "single-page-application"
+        not_found_handling: "single-page-application",
+        run_worker_first: true
       },
       vars: { APP_ENV: "production", APP_BASE_URL: record.origin },
       d1_databases: [
@@ -145,7 +146,7 @@ const PRODUCTION_UPGRADE_CONFIG_SCHEMA = z.object({
   name: z.string(),
   account_id: z.string(),
   main: z.string(),
-  assets: z.object({ directory: z.string() }),
+  assets: z.object({ directory: z.string(), run_worker_first: z.literal(true) }),
   vars: z.object({ APP_BASE_URL: z.string() }),
   d1_databases: z.array(z.object({ database_id: z.string() })),
   kv_namespaces: z.array(z.object({ id: z.string() }))

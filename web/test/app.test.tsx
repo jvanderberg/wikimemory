@@ -528,7 +528,13 @@ test("completes setup registration with the edited passkey label", async () => {
   await render(<App />);
   await page.getByLabelText("Passkey name").fill("Laptop Touch ID");
   await page.getByRole("button", { name: "Create passkey" }).click();
-  await expect.element(page.getByText(/Account recovered/u)).toBeVisible();
+  await expect.element(page.getByRole("heading", { name: "Passkey created" })).toBeVisible();
+  await expect
+    .element(page.getByText(/Previous credentials and sessions were revoked/u))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("link", { name: "Continue to Wikimemory" }))
+    .toHaveAttribute("href", "/app/login");
   expect(submittedLabel).toBe("Laptop Touch ID");
   expect(startRegistration).toHaveBeenCalledOnce();
 });

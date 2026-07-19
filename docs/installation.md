@@ -10,13 +10,13 @@ does not need a Google Cloud project or OAuth application.
 The npm package provides the complete lifecycle without a source checkout:
 
 ```sh
-npx wikimemory install
-npx wikimemory status
-npx wikimemory upgrade
-npx wikimemory passkeys list
-npx wikimemory connect codex
-npx wikimemory skills install codex
-npx wikimemory uninstall
+npx --yes wikimemory install
+npx --yes wikimemory status
+npx --yes wikimemory upgrade
+npx --yes wikimemory passkeys list
+npx --yes wikimemory connect codex
+npx --yes wikimemory skills install codex
+npx --yes wikimemory uninstall
 ```
 
 Each installation stores non-secret lifecycle state under
@@ -29,11 +29,11 @@ from the exact npm release, not the current directory.
 Without a checkout:
 
 ```sh
-npx wikimemory dev
+npx --yes wikimemory dev
 ```
 
 This retains local state under `./.wikimemory/dev/`. Extra arguments are passed to
-Wrangler, for example `npx wikimemory dev --port 8790`.
+Wrangler, for example `npx --yes wikimemory dev --port 8790`.
 
 From a checkout:
 
@@ -68,7 +68,7 @@ npx wrangler login
 Deploy from any directory with:
 
 ```sh
-npx wikimemory install
+npx --yes wikimemory install
 ```
 
 From a clean checkout, the maintainer equivalent is:
@@ -136,7 +136,7 @@ existing production configuration.
 Upgrade without a source checkout:
 
 ```sh
-npx wikimemory upgrade
+npx --yes wikimemory upgrade
 ```
 
 The command loads the deployment record written by setup, verifies the authenticated
@@ -156,7 +156,7 @@ setup secret, replaces passkeys, seeds fixtures, or deletes memory.
 Custom or parallel installations use the Worker name as the deployment-record name:
 
 ```sh
-npx wikimemory upgrade --deployment my-memory
+npx --yes wikimemory upgrade --deployment my-memory
 ```
 
 For testing an explicit record without changing the default, use
@@ -169,7 +169,7 @@ The identical maintainer command from this checkout is:
 npm run upgrade
 ```
 
-Use `npx wikimemory status` to verify the recorded and running application versions,
+Use `npx --yes wikimemory status` to verify the recorded and running application versions,
 schema version, OAuth discovery, and React shell.
 
 ## Passkey recovery
@@ -177,7 +177,7 @@ schema version, OAuth discovery, and React shell.
 Cloudflare account control is the recovery authority. The packaged command is:
 
 ```sh
-npx wikimemory recover
+npx --yes wikimemory recover
 ```
 
 From the original checkout, the equivalent command is:
@@ -207,9 +207,9 @@ npm run passkeys -- add --name "Phone"
 npm run passkeys -- revoke CREDENTIAL_REF
 ```
 
-The checkout-free equivalents are `npx wikimemory passkeys list`,
-`npx wikimemory passkeys add --name "Phone"`, and
-`npx wikimemory passkeys revoke CREDENTIAL_REF`.
+The checkout-free equivalents are `npx --yes wikimemory passkeys list`,
+`npx --yes wikimemory passkeys add --name "Phone"`, and
+`npx --yes wikimemory passkeys revoke CREDENTIAL_REF`.
 
 The add command opens an expiring one-use registration page bound to the passkey that
 authorized it. Revoking that credential invalidates its unused registration links
@@ -225,7 +225,7 @@ Preview the exact resources recorded in the ignored production config:
 npm run uninstall
 ```
 
-Without a checkout, use `npx wikimemory uninstall`. It reads the same exact targets
+Without a checkout, use `npx --yes wikimemory uninstall`. It reads the same exact targets
 from the per-deployment state directory.
 
 Preview mode does not call any deletion command. To remove the deployment, run:
@@ -275,7 +275,7 @@ Approve the MCP client in the browser with the owner passkey. Normal agent
 connections request read/write scopes; use an administrative connection only when
 restore tools are needed.
 
-The packaged shortcut is `npx wikimemory connect codex`.
+The packaged shortcut is `npx --yes wikimemory connect codex`.
 
 ## Connect Claude Code
 
@@ -286,7 +286,7 @@ claude mcp add --transport http --scope user wikimemory https://YOUR_WORKER_HOST
 Inside Claude Code, run `/mcp`, select Wikimemory, and approve with the passkey.
 Claude stores and refreshes its Wikimemory OAuth tokens.
 
-The packaged shortcut is `npx wikimemory connect claude`.
+The packaged shortcut is `npx --yes wikimemory connect claude`.
 
 ### Recover a stale connector session
 
@@ -316,8 +316,8 @@ reach a local `127.0.0.1` Worker.
 Install version-matched copies from the package, then restart the client:
 
 ```sh
-npx wikimemory skills install codex
-npx wikimemory skills install claude
+npx --yes wikimemory skills install codex
+npx --yes wikimemory skills install claude
 ```
 
 From a checkout, symlink the repo skills for Claude:

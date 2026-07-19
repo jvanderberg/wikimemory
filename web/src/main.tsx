@@ -304,6 +304,7 @@ function Registration({ recovery }: { recovery: boolean }): React.JSX.Element {
   const [token] = useState(() => decodeURIComponent(location.hash.slice(1)));
   const [label, setLabel] = useState(recovery ? "Primary passkey" : "Backup passkey");
   const [status, setStatus] = useState("");
+  const [completed, setCompleted] = useState<null | { message: string; label: string }>(null);
   useEffect(() => {
     history.replaceState(null, "", location.pathname);
   }, []);
@@ -326,15 +327,32 @@ function Registration({ recovery }: { recovery: boolean }): React.JSX.Element {
             body: JSON.stringify({ flowId: envelope.flowId, response })
           })
         );
-      setStatus(
-        result.mode === "recovery"
-          ? "Account recovered. Previous credentials and sessions were revoked."
-          : `Saved ${result.label ?? label}.`
-      );
+      setCompleted({
+        label: result.label ?? label,
+        message:
+          result.mode === "recovery"
+            ? "Previous credentials and sessions were revoked."
+            : "Your existing credentials remain active."
+      });
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Registration failed");
     }
   }
+  if (completed !== null)
+    return (
+      <main className="center">
+        <section className="panel">
+          <h1>Passkey created</h1>
+          <p>
+            <strong>{completed.label}</strong> is ready.
+          </p>
+          <p>{completed.message}</p>
+          <a className="button" href={recovery ? "/app/login" : "/app/manage"}>
+            {recovery ? "Continue to Wikimemory" : "Return to passkey management"}
+          </a>
+        </section>
+      </main>
+    );
   return (
     <main className="center">
       <section className="panel">

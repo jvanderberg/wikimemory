@@ -56,6 +56,62 @@ interface CommandResult {
   exitCode: number;
 }
 
+type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
+type Sleeper = (milliseconds: number) => Promise<void>;
+
+function cloudflareOperation(args: string[]): string {
+  const command = args[1] ?? "command";
+  const subcommand = args[2];
+  if (command === "whoami") return "Cloudflare authentication check";
+  if (command === "deployments") return "Worker lookup";
+  if (command === "deploy") return "Worker deployment";
+  if (command === "secret") return "Owner setup credential upload";
+  if (command === "d1" && subcommand === "list") return "D1 database lookup";
+  if (command === "d1" && subcommand === "create") return "D1 database creation";
+  if (command === "d1" && subcommand === "execute") return "D1 database migration";
+  if (command === "kv" && args[3] === "namespace" && args[4] === "list")
+    return "KV namespace lookup";
+  if (command === "kv" && args[3] === "namespace" && args[4] === "create")
+    return "KV namespace creation";
+  return `Cloudflare ${command}`;
+}
+
+function conciseDiagnostic(result: CommandResult): string {
+  const raw = result.stderr.trim() || result.stdout.trim();
+  const plain = raw.replaceAll("\u001b", "").replaceAll(/\s+/gu, " ").trim();
+  if (plain === "") return `process exited with status ${result.exitCode}`;
+  return plain.length > 600 ? `${plain.slice(0, 597)}...` : plain;
+}
+
+export function commandFailureMessage(operation: string, result: CommandResult): string {
+  return `${operation} failed: ${conciseDiagnostic(result)}`;
+}
+
+async function sleep(milliseconds: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+export async function retryOperation<T>(
+  operation: string,
+  execute: () => Promise<T>,
+  sleeper: Sleeper = sleep,
+  attempts = 3
+): Promise<T> {
+  let finalError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await execute();
+    } catch (error) {
+      finalError = error;
+      if (attempt + 1 < attempts) await sleeper(250 * 2 ** attempt);
+    }
+  }
+  const detail = finalError instanceof Error ? finalError.message : "Unknown failure";
+  throw new Error(`${operation} failed after ${attempts} attempts: ${detail}`);
+}
+
 export function parseOptions(args: string[]): Options {
   let recover = false;
   let resume = false;
@@ -98,7 +154,7 @@ export function parseOptions(args: string[]): Options {
 }
 
 function usage(): string {
-  return `Usage: ${setupRuntime.executable} [--account-id ID] [--yes] [--worker-name NAME] [--database-name NAME] [--kv-name NAME]\n       ${setupRuntime.executable} --resume [--yes]\n       ${setupRuntime.executable} --recover [--yes]`;
+  return `Deploy a personal Wikimemory instance to your Cloudflare account.\nThe installer previews every Worker, D1, and KV resource before creating it.\n\nUsage: ${setupRuntime.executable} [--account-id ID] [--yes] [--worker-name NAME] [--database-name NAME] [--kv-name NAME]\n       ${setupRuntime.executable} --resume [--yes]\n       ${setupRuntime.executable} --recover [--yes]`;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -116,7 +172,6 @@ async function run(
   input?: string,
   allowFailure = false
 ): Promise<CommandResult> {
-  console.log(`\n> ${command} ${args.join(" ")}`);
   const result = await new Promise<CommandResult>((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
@@ -125,11 +180,9 @@ async function run(
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk;
-      process.stdout.write(chunk);
     });
     child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
-      process.stderr.write(chunk);
     });
     child.on("error", (error) => {
       reject(error);
@@ -140,7 +193,7 @@ async function run(
     child.stdin.end(input === undefined ? undefined : `${input}\n`);
   });
   if (result.exitCode !== 0 && !allowFailure)
-    throw new Error(`${command} exited with status ${result.exitCode}`);
+    throw new Error(commandFailureMessage(cloudflareOperation(args), result));
   return result;
 }
 
@@ -170,7 +223,8 @@ export function initialConfig(options: Options, account: Account): string {
       assets: {
         directory: join(PACKAGE_ROOT, "dist", "web"),
         binding: "ASSETS",
-        not_found_handling: "single-page-application"
+        not_found_handling: "single-page-application",
+        run_worker_first: true
       },
       vars: { APP_ENV: "production", APP_BASE_URL: BOOTSTRAP_ORIGIN }
     },
@@ -187,7 +241,8 @@ export function withWebAssets(config: string): string {
       assets: {
         directory: join(PACKAGE_ROOT, "dist", "web"),
         binding: "ASSETS",
-        not_found_handling: "single-page-application"
+        not_found_handling: "single-page-application",
+        run_worker_first: true
       }
     },
     null,
@@ -350,22 +405,37 @@ function bootstrapSecret(): { raw: string; hash: string } {
   return { raw, hash };
 }
 
-async function verifyEndpoint(
+export async function verifyEndpoint(
   origin: string,
   path: "/health" | "/ready",
-  expectedStatus: "ok" | "ready"
+  expectedStatus: "ok" | "ready",
+  fetcher: Fetcher = fetch,
+  sleeper: Sleeper = sleep,
+  attempts = 6
 ): Promise<void> {
-  const response = await fetch(`${origin}${path}`, { redirect: "error" });
-  if (!response.ok) throw new Error(`Deployment ${path} check failed with HTTP ${response.status}`);
-  const parsed = z
-    .object({ status: z.literal(expectedStatus), service: z.literal("wikimemory") })
-    .safeParse(await response.json());
-  if (!parsed.success) throw new Error(`Deployment ${path} returned an unexpected response.`);
+  let finalDetail = "no response";
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetcher(`${origin}${path}`, { redirect: "error" });
+      const body = await response.text();
+      if (response.ok) {
+        const decoded = z
+          .object({ status: z.literal(expectedStatus), service: z.literal("wikimemory") })
+          .safeParse(JSON.parse(body));
+        if (decoded.success) return;
+        finalDetail = `HTTP ${response.status}: unexpected response ${body.slice(0, 300)}`;
+      } else finalDetail = `HTTP ${response.status}: ${body.slice(0, 300) || response.statusText}`;
+    } catch (error) {
+      finalDetail = error instanceof Error ? error.message : "Unknown request failure";
+    }
+    if (attempt + 1 < attempts) await sleeper(250 * 2 ** attempt);
+  }
+  throw new Error(`Deployment ${path} check failed after ${attempts} attempts: ${finalDetail}`);
 }
 
-export function handoff(origin: string, rawToken: string): string {
+export function handoff(origin: string, rawToken: string, deploymentName: string): string {
   const endpoint = `${origin}/mcp`;
-  return `Wikimemory is ready for owner setup.\n\nOpen this one-time URL on a device that can create a passkey:\n${origin}/setup#${encodeURIComponent(rawToken)}\n\nAfter setup, connect clients with:\n  codex mcp add wikimemory --url ${endpoint}\n  codex mcp login wikimemory --scopes memory:read,memory:write\n  claude mcp add --transport http --scope user wikimemory ${endpoint}\n\nThe setup token was not written to disk. This is the only time it will be printed.`;
+  return `Wikimemory is ready for owner setup.\n\nOpen this one-time URL on a device that can create a passkey:\n${origin}/setup#${encodeURIComponent(rawToken)}\n\nAfter setup, connect clients with:\n  npx --yes wikimemory connect --deployment ${deploymentName} codex\n  npx --yes wikimemory connect --deployment ${deploymentName} claude\n\nMCP endpoint: ${endpoint}\nThe setup token was not written to disk. This is the only time it will be printed.`;
 }
 
 async function remoteWorkerExists(workerName: string): Promise<boolean> {
@@ -402,10 +472,12 @@ async function existingResourceNames(): Promise<{
   databases: Set<string>;
   namespaces: Set<string>;
 }> {
-  const [d1, kv] = await Promise.all([
-    run("npx", ["wrangler", "d1", "list", "--json", "--config", CONFIG_PATH]),
+  const d1 = await retryOperation("D1 database lookup", async () =>
+    run("npx", ["wrangler", "d1", "list", "--json", "--config", CONFIG_PATH])
+  );
+  const kv = await retryOperation("KV namespace lookup", async () =>
     run("npx", ["wrangler", "kv", "namespace", "list", "--config", CONFIG_PATH])
-  ]);
+  );
   const databases = z.array(z.looseObject({ name: z.string() })).parse(JSON.parse(d1.stdout));
   const namespaces = z.array(z.looseObject({ title: z.string() })).parse(JSON.parse(kv.stdout));
   return {
@@ -417,6 +489,7 @@ async function existingResourceNames(): Promise<{
 async function ensureResources(options: Options): Promise<void> {
   let config = await readFile(CONFIG_PATH, "utf8");
   if (!hasBinding(config, "DB")) {
+    console.log("  Creating D1 database…");
     await run("npx", [
       "wrangler",
       "d1",
@@ -431,6 +504,7 @@ async function ensureResources(options: Options): Promise<void> {
     config = await readFile(CONFIG_PATH, "utf8");
   }
   if (!hasBinding(config, "OAUTH_KV")) {
+    console.log("  Creating OAuth state namespace…");
     await run("npx", [
       "wrangler",
       "kv",
@@ -455,6 +529,7 @@ async function finalizeDeployment(options: Options): Promise<void> {
   let origin = configuredOrigin(config);
   if (origin === null) throw new Error(`${CONFIG_PATH} has no valid APP_BASE_URL.`);
   if (origin === BOOTSTRAP_ORIGIN) {
+    console.log("  Creating Worker address…");
     const deployArgs = ["wrangler", "deploy", "--strict", "--config", CONFIG_PATH];
     let firstDeploy = await run("npx", deployArgs, undefined, true);
     if (firstDeploy.exitCode !== 0 && workersDevRegistrationRequired(firstDeploy)) {
@@ -470,7 +545,7 @@ async function finalizeDeployment(options: Options): Promise<void> {
       firstDeploy = await run("npx", deployArgs, undefined, true);
     }
     if (firstDeploy.exitCode !== 0) {
-      throw new Error(`npx exited with status ${firstDeploy.exitCode}`);
+      throw new Error(commandFailureMessage("Worker deployment", firstDeploy));
     }
     origin = deployedOrigin(`${firstDeploy.stdout}\n${firstDeploy.stderr}`);
     if (origin === null)
@@ -487,14 +562,18 @@ async function finalizeDeployment(options: Options): Promise<void> {
   const boundDatabaseName = bindingProperty(config, "DB", "database_name");
   if (boundDatabaseName === null)
     throw new Error(`${CONFIG_PATH} has a DB binding without a database_name.`);
+  console.log("  Applying database migrations…");
   await applyRemoteMigrations(boundDatabaseName);
   const secret = bootstrapSecret();
+  console.log("  Deploying Wikimemory…");
   await run("npx", ["wrangler", "deploy", "--strict", "--config", CONFIG_PATH]);
+  console.log("  Creating one-time owner setup…");
   await run(
     "npx",
     ["wrangler", "secret", "put", "SETUP_TOKEN_HASH", "--config", CONFIG_PATH],
     secret.hash
   );
+  console.log("  Waiting for deployment readiness…");
   await verifyEndpoint(origin, "/health", "ok");
   await verifyEndpoint(origin, "/ready", "ready");
   const finalConfig = await readFile(CONFIG_PATH, "utf8");
@@ -506,7 +585,7 @@ async function finalizeDeployment(options: Options): Promise<void> {
   const recordPath = installedRecordPath(options.workerName);
   await writeDeploymentRecord(deploymentRecord, recordPath);
   console.log(`\nSaved deployment record: ${recordPath}`);
-  console.log(`\n${handoff(origin, secret.raw)}`);
+  console.log(`\n${handoff(origin, secret.raw, options.workerName)}`);
 }
 
 async function freshDeployment(options: Options): Promise<void> {
@@ -526,10 +605,11 @@ async function freshDeployment(options: Options): Promise<void> {
   let workerExists: boolean;
   let resources: { databases: Set<string>; namespaces: Set<string> };
   try {
-    [workerExists, resources] = await Promise.all([
-      remoteWorkerExists(options.workerName),
-      existingResourceNames()
-    ]);
+    console.log("\nChecking that Cloudflare resource names are available…");
+    workerExists = await retryOperation("Worker lookup", async () =>
+      remoteWorkerExists(options.workerName)
+    );
+    resources = await existingResourceNames();
   } catch (error) {
     await unlink(CONFIG_PATH);
     throw error;
@@ -610,7 +690,7 @@ async function recover(options: Options): Promise<void> {
   );
   await verifyEndpoint(origin, "/health", "ok");
   await verifyEndpoint(origin, "/ready", "ready");
-  console.log(`\n${handoff(origin, secret.raw)}`);
+  console.log(`\n${handoff(origin, secret.raw, options.workerName)}`);
 }
 
 export async function runSetup(args: string[]): Promise<void> {

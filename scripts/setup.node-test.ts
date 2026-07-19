@@ -6,6 +6,7 @@ import process from "node:process";
 import { describe, it } from "node:test";
 import {
   bindingProperty,
+  commandFailureMessage,
   configuredOrigin,
   deployedOrigin,
   deploymentListIndicatesExisting,
@@ -13,7 +14,9 @@ import {
   initialConfig,
   migrationBundle,
   parseOptions,
+  retryOperation,
   runSetup,
+  verifyEndpoint,
   withWebAssets,
   workersDevRegistrationRequired
 } from "./setup.ts";
@@ -68,6 +71,7 @@ await describe("guided installer", async () => {
     assert.match(config, /"account_id": "account-123"/u);
     assert.equal(configuredOrigin(config), "https://bootstrap.invalid");
     assert.match(config, /"binding": "ASSETS"/u);
+    assert.match(config, /"run_worker_first": true/u);
   });
 
   await it("upgrades resumable production configs with the React asset binding", () => {
@@ -82,7 +86,8 @@ await describe("guided installer", async () => {
       assets: {
         directory: "dist/web",
         binding: "ASSETS",
-        not_found_handling: "single-page-application"
+        not_found_handling: "single-page-application",
+        run_worker_first: true
       }
     });
   });
@@ -146,11 +151,117 @@ await describe("guided installer", async () => {
   });
 
   await it("prints complete read-write client handoff without exposing the hash", () => {
-    const text = handoff("https://wikimemory.owner.workers.dev", "raw-token");
-    assert.match(text, /codex mcp login wikimemory --scopes memory:read,memory:write/u);
-    assert.match(text, /claude mcp add --transport http --scope user/u);
+    const text = handoff("https://memory.owner.workers.dev", "raw-token", "personal-memory");
+    assert.match(text, /wikimemory connect --deployment personal-memory codex/u);
+    assert.match(text, /wikimemory connect --deployment personal-memory claude/u);
     assert.match(text, /\/setup#raw-token/u);
     assert.doesNotMatch(text, /SETUP_TOKEN_HASH/u);
+  });
+
+  await it("retries transient Cloudflare operations", async () => {
+    let attempts = 0;
+    const delays: number[] = [];
+    const value = await retryOperation(
+      "D1 database lookup",
+      () => {
+        attempts += 1;
+        return attempts < 3
+          ? Promise.reject(new Error("Authentication error [code: 10000]"))
+          : Promise.resolve("ready");
+      },
+      (milliseconds) => {
+        delays.push(milliseconds);
+        return Promise.resolve();
+      }
+    );
+    assert.equal(value, "ready");
+    assert.equal(attempts, 3);
+    assert.deepEqual(delays, [250, 500]);
+    await assert.rejects(
+      retryOperation(
+        "Worker lookup",
+        () => Promise.reject(new Error("offline")),
+        () => Promise.resolve(),
+        1
+      ),
+      /offline/u
+    );
+  });
+
+  await it("retries deployment health and retains the final response detail", async () => {
+    let attempts = 0;
+    const delays: number[] = [];
+    await verifyEndpoint(
+      "https://memory.example",
+      "/health",
+      "ok",
+      () => {
+        attempts += 1;
+        return Promise.resolve(
+          attempts === 1
+            ? new Response("starting", { status: 500 })
+            : Response.json({ status: "ok", service: "wikimemory" })
+        );
+      },
+      (milliseconds) => {
+        delays.push(milliseconds);
+        return Promise.resolve();
+      }
+    );
+    assert.equal(attempts, 2);
+    assert.deepEqual(delays, [250]);
+    await assert.rejects(
+      verifyEndpoint(
+        "https://memory.example",
+        "/ready",
+        "ready",
+        () => Promise.resolve(new Response("database unavailable", { status: 503 })),
+        () => Promise.resolve(),
+        2
+      ),
+      /HTTP 503: database unavailable/u
+    );
+    await assert.rejects(
+      verifyEndpoint(
+        "https://memory.example",
+        "/health",
+        "ok",
+        () => Promise.resolve(Response.json({ status: "wrong", service: "wikimemory" })),
+        () => Promise.resolve(),
+        1
+      ),
+      /unexpected response/u
+    );
+    await assert.rejects(
+      verifyEndpoint(
+        "https://memory.example",
+        "/health",
+        "ok",
+        () => Promise.reject(new Error("network offline")),
+        () => Promise.resolve(),
+        1
+      ),
+      /network offline/u
+    );
+  });
+
+  await it("names failed Cloudflare operations and preserves useful diagnostics", () => {
+    assert.equal(
+      commandFailureMessage("D1 database lookup", {
+        stdout: "",
+        stderr: "Authentication error [code: 10000]",
+        exitCode: 1
+      }),
+      "D1 database lookup failed: Authentication error [code: 10000]"
+    );
+    assert.equal(
+      commandFailureMessage("Worker lookup", { stdout: "not found", stderr: "", exitCode: 1 }),
+      "Worker lookup failed: not found"
+    );
+    assert.equal(
+      commandFailureMessage("Worker lookup", { stdout: "", stderr: "", exitCode: 7 }),
+      "Worker lookup failed: process exited with status 7"
+    );
   });
 
   await it("keeps uninstall in preview mode unless explicitly applied", () => {

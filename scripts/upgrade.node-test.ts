@@ -100,6 +100,7 @@ await describe("packaged upgrade", async () => {
     assert.equal(config.account_id, "account-id");
     assert.equal(config.main, "/package/src/index.ts");
     assert.equal(config.assets.directory, "/package/dist/web");
+    assert.equal(config.assets.run_worker_first, true);
     const database = config.d1_databases.at(0);
     const namespace = config.kv_namespaces.at(0);
     assert.ok(database);
@@ -174,6 +175,7 @@ await describe("packaged upgrade", async () => {
     const config = localConfig("/package");
     assert.match(config, /"main": "\/package\/src\/index\.ts"/u);
     assert.match(config, /"directory": "\/package\/dist\/web"/u);
+    assert.match(config, /"run_worker_first": true/u);
     assert.match(config, /"APP_ENV": "local"/u);
   });
 });

@@ -13,7 +13,8 @@ export function localConfig(packageRoot: string): string {
       assets: {
         directory: join(packageRoot, "dist", "web"),
         binding: "ASSETS",
-        not_found_handling: "single-page-application"
+        not_found_handling: "single-page-application",
+        run_worker_first: true
       },
       vars: { APP_ENV: "local" },
       d1_databases: [

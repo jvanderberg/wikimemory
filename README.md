@@ -18,7 +18,7 @@ or password manager. No Google Cloud project or OAuth application is required.
 
 ```sh
 npx wrangler login
-npx wikimemory install
+npx --yes wikimemory install
 ```
 
 The installer previews the exact Cloudflare account, Worker, D1 database, and KV
@@ -26,12 +26,12 @@ namespace before creating anything. Open its one-time URL to register the owner
 passkey, then connect a client and install its memory skills:
 
 ```sh
-npx wikimemory connect codex
-npx wikimemory skills install codex
+npx --yes wikimemory connect codex
+npx --yes wikimemory skills install codex
 
 # or
-npx wikimemory connect claude
-npx wikimemory skills install claude
+npx --yes wikimemory connect claude
+npx --yes wikimemory skills install claude
 ```
 
 Use the same remote MCP from Claude web or mobile by adding the printed HTTPS `/mcp`
@@ -41,7 +41,7 @@ for recovery, passkey management, upgrades, and safe uninstall.
 ## Local development without a checkout
 
 ```sh
-npx wikimemory dev
+npx --yes wikimemory dev
 ```
 
 This starts the packaged Worker, React app, D1, and KV through local Wrangler
@@ -52,11 +52,11 @@ and MCP transport remain real.
 ## Lifecycle commands
 
 ```sh
-npx wikimemory status
-npx wikimemory upgrade
-npx wikimemory recover
-npx wikimemory passkeys list
-npx wikimemory uninstall       # preview only
+npx --yes wikimemory status
+npx --yes wikimemory upgrade
+npx --yes wikimemory recover
+npx --yes wikimemory passkeys list
+npx --yes wikimemory uninstall       # preview only
 ```
 
 Parallel installations use `--deployment NAME`. Non-secret lifecycle state lives

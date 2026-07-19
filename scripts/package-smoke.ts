@@ -65,6 +65,8 @@ async function packageSmoke(): Promise<void> {
       const result = await invoke(args);
       if (result.exitCode !== 0 || !result.stdout.includes("Usage:"))
         throw new Error(`Packed command failed (${args.join(" ")}): ${result.stderr}`);
+      if (args[0] === "--help" && !result.stdout.includes("Personal, passkey-protected memory"))
+        throw new Error("Packed help does not explain what Wikimemory is");
     }
     console.log(`Verified packed Wikimemory ${version.stdout.trim()} from an empty directory.`);
   } finally {
