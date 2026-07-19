@@ -30,9 +30,9 @@ Claude/Codex -- Streamable HTTP MCP + OAuth 2.1 ---------v---+
 
 ### Worker router
 
-The Worker owns `/mcp`, OAuth discovery and endpoints, WebAuthn setup/authentication
-routes, web routes, internal JSON endpoints used by the web app, static assets,
-and a minimal non-sensitive root response.
+The Worker owns `/mcp`, OAuth discovery and endpoints, WebAuthn JSON APIs,
+authenticated web JSON APIs, and the compiled web assets. OAuth endpoints may
+redirect the browser, but Worker TypeScript does not construct application HTML.
 
 Transport adapters authenticate, validate, and translate requests. They contain no
 domain write SQL and do not assemble revisions themselves.
@@ -59,9 +59,15 @@ test owner. Production cannot enter that local path.
 
 ### Web application
 
-The web application is server-backed and progressively enhanced. It shares the same
-session identity and domain query services as MCP. It is read-oriented; administrative
-forms use CSRF protection, recent-auth checks, and explicit confirmation.
+The web application is a React 19/Vite single-page application. React components and
+hooks own setup, authentication, local consent, browse, search, document history, and
+passkey/session/client management rendering. Runtime responses are validated before
+entering component state. The Worker serves the compiled assets and JSON only; the
+asset binding falls back to the React shell for browser routes.
+
+The browser uses an HttpOnly owner-session cookie. Same-origin checks protect every
+mutation, passkey management additionally requires authentication within five
+minutes, and recovery remains an out-of-band Cloudflare-account operation.
 
 ## Deployment model
 

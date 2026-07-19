@@ -1,49 +1,28 @@
-import type { AuthRequest, ClientInfo } from "@cloudflare/workers-oauth-provider";
+import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { OAuthError } from "@cloudflare/workers-oauth-provider";
-import type { Env } from "../env";
-import { MemoryService } from "../domain/memory-service";
 import { isMemoryScope } from "../domain/guards";
+import { MemoryService } from "../domain/memory-service";
 import type { ActorContext, MemoryScope, OwnerContext } from "../domain/types";
+import type { Env } from "../env";
 import { bindAuthorizationResource } from "./resource";
 
 const PRINCIPAL_ID = "local-owner";
 const WORKSPACE_ID = "local-workspace";
-function html(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function cookie(request: Request, name: string): string | null {
-  for (const part of (request.headers.get("cookie") ?? "").split(";")) {
-    const [key, ...rest] = part.trim().split("=");
-    if (key === name) return rest.join("=");
-  }
-  return null;
-}
-
 export async function ensureLocalOwner(env: Env): Promise<void> {
   const createdAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   await env.DB.batch([
-    env.DB
-      .prepare(
-        `INSERT OR IGNORE INTO principals
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO principals
            (id, provider, provider_subject, email, email_verified, display_name, created_at)
          VALUES (?, 'local', ?, 'owner@example.test', 1, 'Local Owner', ?)`
-      )
-      .bind(PRINCIPAL_ID, PRINCIPAL_ID, createdAt),
-    env.DB
-      .prepare("INSERT OR IGNORE INTO workspaces(id, name, created_at) VALUES (?, 'Local Wikimemory', ?)")
-      .bind(WORKSPACE_ID, createdAt),
-    env.DB
-      .prepare(
-        `INSERT OR IGNORE INTO memberships(workspace_id, principal_id, role, created_at)
+    ).bind(PRINCIPAL_ID, PRINCIPAL_ID, createdAt),
+    env.DB.prepare(
+      "INSERT OR IGNORE INTO workspaces(id, name, created_at) VALUES (?, 'Local Wikimemory', ?)"
+    ).bind(WORKSPACE_ID, createdAt),
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO memberships(workspace_id, principal_id, role, created_at)
          VALUES (?, ?, 'owner', ?)`
-      )
-      .bind(WORKSPACE_ID, PRINCIPAL_ID, createdAt)
+    ).bind(WORKSPACE_ID, PRINCIPAL_ID, createdAt)
   ]);
   const actor: ActorContext = {
     workspaceId: WORKSPACE_ID,
@@ -85,7 +64,11 @@ export function localOwnerActor(clientId = "wikimemory-web"): ActorContext {
 }
 
 export function localOwnerContext(clientId = "wikimemory-web"): OwnerContext {
-  return { ...localOwnerActor(clientId), role: "owner", reauthenticatedAt: new Date().toISOString() };
+  return {
+    ...localOwnerActor(clientId),
+    role: "owner",
+    reauthenticatedAt: new Date().toISOString()
+  };
 }
 
 function validateScopes(request: AuthRequest): MemoryScope[] {
@@ -96,43 +79,40 @@ function validateScopes(request: AuthRequest): MemoryScope[] {
   return requested;
 }
 
-function consentPage(request: Request, auth: AuthRequest, client: ClientInfo | null): Response {
-  const csrf = crypto.randomUUID();
-  const action = new URL(request.url);
-  const callbackOrigin = new URL(auth.redirectUri).origin;
-  const name = client?.clientName ?? client?.clientId ?? auth.clientId;
-  const scopes = validateScopes(auth);
-  const markup = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Authorize Wikimemory</title><style>body{font:16px system-ui;max-width:42rem;margin:4rem auto;padding:0 1rem}button{font:inherit;padding:.65rem 1rem}</style></head>
-<body><main><h1>Authorize Wikimemory</h1><p><strong>${html(name)}</strong> is requesting access to your local test memory.</p>
-<ul>${scopes.map((scope) => `<li>${html(scope)}</li>`).join("")}</ul>
-<form method="post" action="${html(action.pathname + action.search)}"><input type="hidden" name="csrf" value="${html(csrf)}">
-<button type="submit">Continue as owner@example.test</button></form></main></body></html>`;
-  return new Response(markup, {
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "set-cookie": `wm_local_csrf=${csrf}; HttpOnly; Path=/; SameSite=Lax; Max-Age=600`,
-      "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' ${callbackOrigin}; frame-ancestors 'none'; base-uri 'none'`,
-      "x-frame-options": "DENY",
-      "x-content-type-options": "nosniff"
-    }
+async function authorizationRequest(request: Request, env: Env): Promise<AuthRequest> {
+  const incoming = new URL(request.url);
+  const authorize = new URL("/authorize", incoming.origin);
+  authorize.search = incoming.search;
+  const parsed = await env.OAUTH_PROVIDER.parseAuthRequest(new Request(authorize));
+  return bindAuthorizationResource(parsed, new URL("/mcp", request.url).toString());
+}
+
+export function handleLocalAuthorization(request: Request, env: Env): Response {
+  if (env.APP_ENV !== "local")
+    return new Response("Local identity is disabled in production.", { status: 501 });
+  if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+  const destination = new URL("/local-authorize", request.url);
+  destination.search = new URL(request.url).search;
+  return Response.redirect(destination.toString(), 302);
+}
+
+export async function localAuthorizationOptions(request: Request, env: Env): Promise<Response> {
+  if (env.APP_ENV !== "local") return Response.json({ error: "not_found" }, { status: 404 });
+  const auth = await authorizationRequest(request, env);
+  const client = await env.OAUTH_PROVIDER.lookupClient(auth.clientId);
+  return Response.json({
+    clientName: client?.clientName ?? auth.clientId,
+    requestedScopes: validateScopes(auth)
   });
 }
 
-export async function handleLocalAuthorization(request: Request, env: Env): Promise<Response> {
-  if (env.APP_ENV !== "local") return new Response("Local identity is disabled in production.", { status: 501 });
-  const parsedAuth = await env.OAUTH_PROVIDER.parseAuthRequest(request);
-  const auth = bindAuthorizationResource(parsedAuth, new URL("/mcp", request.url).toString());
-  const client = await env.OAUTH_PROVIDER.lookupClient(auth.clientId);
-  if (request.method === "GET") return consentPage(request, auth, client);
-  if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
-  const form = await request.formData();
-  const submitted = form.get("csrf");
-  const expected = cookie(request, "wm_local_csrf");
-  if (typeof submitted !== "string" || expected === null || submitted !== expected) {
-    throw new OAuthError("invalid_request", { description: "CSRF validation failed" });
+export async function approveLocalAuthorization(request: Request, env: Env): Promise<Response> {
+  if (env.APP_ENV !== "local") return Response.json({ error: "not_found" }, { status: 404 });
+  if (request.method !== "POST" || request.headers.get("origin") !== new URL(request.url).origin) {
+    throw new OAuthError("invalid_request", { description: "Same-origin approval required" });
   }
+  const auth = await authorizationRequest(request, env);
+  const client = await env.OAUTH_PROVIDER.lookupClient(auth.clientId);
   const scopes = validateScopes(auth);
   await ensureLocalOwner(env);
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
@@ -147,5 +127,5 @@ export async function handleLocalAuthorization(request: Request, env: Env): Prom
       scopes
     }
   });
-  return Response.redirect(redirectTo, 302);
+  return Response.json({ redirectTo });
 }

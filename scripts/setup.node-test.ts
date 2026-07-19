@@ -1,11 +1,29 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { bindingProperty, configuredOrigin, deployedOrigin, deploymentListIndicatesExisting, handoff, initialConfig, migrationBundle, parseOptions, workersDevRegistrationRequired } from "./setup.ts";
+import {
+  bindingProperty,
+  configuredOrigin,
+  deployedOrigin,
+  deploymentListIndicatesExisting,
+  handoff,
+  initialConfig,
+  migrationBundle,
+  parseOptions,
+  withWebAssets,
+  workersDevRegistrationRequired
+} from "./setup.ts";
 import { parseUninstallOptions, resolveUninstallTargets } from "./uninstall.ts";
 
 await describe("guided installer", async () => {
   await it("parses account, resume, and resource options strictly", () => {
-    const options = parseOptions(["--resume", "--yes", "--account-id", "abc123", "--worker-name", "my-memory"]);
+    const options = parseOptions([
+      "--resume",
+      "--yes",
+      "--account-id",
+      "abc123",
+      "--worker-name",
+      "my-memory"
+    ]);
     assert.equal(options.resume, true);
     assert.equal(options.yes, true);
     assert.equal(options.accountId, "abc123");
@@ -19,26 +37,67 @@ await describe("guided installer", async () => {
     const config = initialConfig(options, { id: "account-123", name: "Personal" });
     assert.match(config, /"account_id": "account-123"/u);
     assert.equal(configuredOrigin(config), "https://bootstrap.invalid");
+    assert.match(config, /"binding": "ASSETS"/u);
+  });
+
+  await it("upgrades resumable production configs with the React asset binding", () => {
+    const config = withWebAssets(
+      '{"name":"wikimemory","main":"src/index.ts","vars":{"APP_BASE_URL":"https://memory.example"}}\n'
+    );
+    const parsed: unknown = JSON.parse(config);
+    assert.deepEqual(parsed, {
+      name: "wikimemory",
+      main: "src/index.ts",
+      vars: { APP_BASE_URL: "https://memory.example" },
+      assets: {
+        directory: "./dist/web",
+        binding: "ASSETS",
+        not_found_handling: "single-page-application"
+      }
+    });
   });
 
   await it("discovers only workers.dev deployment origins", () => {
-    assert.equal(deployedOrigin("Deployed https://wikimemory.owner.workers.dev"), "https://wikimemory.owner.workers.dev");
+    assert.equal(
+      deployedOrigin("Deployed https://wikimemory.owner.workers.dev"),
+      "https://wikimemory.owner.workers.dev"
+    );
     assert.equal(deployedOrigin("https://example.com"), null);
   });
 
   await it("recognizes the first-Worker subdomain onboarding requirement", () => {
-    assert.equal(workersDevRegistrationRequired({
-      stdout: "",
-      stderr: "You can either deploy to routes, or register a workers.dev subdomain here: https://dash.cloudflare.com/account/workers/onboarding",
-      exitCode: 1
-    }), true);
-    assert.equal(workersDevRegistrationRequired({ stdout: "", stderr: "unrelated deployment failure", exitCode: 1 }), false);
+    assert.equal(
+      workersDevRegistrationRequired({
+        stdout: "",
+        stderr:
+          "You can either deploy to routes, or register a workers.dev subdomain here: https://dash.cloudflare.com/account/workers/onboarding",
+        exitCode: 1
+      }),
+      true
+    );
+    assert.equal(
+      workersDevRegistrationRequired({
+        stdout: "",
+        stderr: "unrelated deployment failure",
+        exitCode: 1
+      }),
+      false
+    );
   });
 
   await it("distinguishes a missing Worker from an existing version-only Worker", () => {
-    assert.equal(deploymentListIndicatesExisting({ stdout: "", stderr: "This Worker does not exist [code: 10007]", exitCode: 1 }), false);
+    assert.equal(
+      deploymentListIndicatesExisting({
+        stdout: "",
+        stderr: "This Worker does not exist [code: 10007]",
+        exitCode: 1
+      }),
+      false
+    );
     assert.equal(deploymentListIndicatesExisting({ stdout: "[]", stderr: "", exitCode: 0 }), true);
-    assert.throws(() => deploymentListIndicatesExisting({ stdout: "", stderr: "network failure", exitCode: 1 }));
+    assert.throws(() =>
+      deploymentListIndicatesExisting({ stdout: "", stderr: "network failure", exitCode: 1 })
+    );
   });
 
   await it("recovers the configured D1 name for resumable migrations", () => {
@@ -48,7 +107,10 @@ await describe("guided installer", async () => {
   });
 
   await it("bundles each compound migration with its atomic migration record", () => {
-    const bundle = migrationBundle("CREATE TRIGGER example AFTER INSERT ON items BEGIN SELECT 1; END;\n", "0001_owner's.sql");
+    const bundle = migrationBundle(
+      "CREATE TRIGGER example AFTER INSERT ON items BEGIN SELECT 1; END;\n",
+      "0001_owner's.sql"
+    );
     assert.match(bundle, /CREATE TRIGGER[\s\S]+BEGIN SELECT 1; END;/u);
     assert.match(bundle, /INSERT INTO d1_migrations\(name\) VALUES \('0001_owner''s.sql'\);/u);
   });
@@ -63,14 +125,22 @@ await describe("guided installer", async () => {
 
   await it("keeps uninstall in preview mode unless explicitly applied", () => {
     assert.deepEqual(parseUninstallOptions([]), { apply: false, confirmation: null, help: false });
-    assert.deepEqual(parseUninstallOptions(["--apply", "--confirm", "my-memory"]), { apply: true, confirmation: "my-memory", help: false });
+    assert.deepEqual(parseUninstallOptions(["--apply", "--confirm", "my-memory"]), {
+      apply: true,
+      confirmation: "my-memory",
+      help: false
+    });
     assert.throws(() => parseUninstallOptions(["--confirm", "my-memory"]));
   });
 
   await it("resolves uninstall targets only from recorded bindings", () => {
     const config = `{"name":"my-memory","account_id":"account","d1_databases":[{"binding":"DB","database_name":"db","database_id":"db-id"}],"kv_namespaces":[{"binding":"OAUTH_KV","id":"kv-id"}]}`;
     assert.deepEqual(resolveUninstallTargets(config), {
-      accountId: "account", workerName: "my-memory", databaseName: "db", databaseId: "db-id", kvNamespaceId: "kv-id"
+      accountId: "account",
+      workerName: "my-memory",
+      databaseName: "db",
+      databaseId: "db-id",
+      kvNamespaceId: "kv-id"
     });
     assert.throws(() => resolveUninstallTargets(`{"name":"my-memory"}`));
   });

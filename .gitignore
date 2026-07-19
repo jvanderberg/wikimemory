@@ -1,6 +1,7 @@
 node_modules/
 .wrangler/
 wrangler.production.jsonc
+.wikimemory-cli.json
 .wikimemory-installer.json
 .wikimemory-uninstall.json
 dist/

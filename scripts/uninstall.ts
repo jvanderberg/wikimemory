@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { readFile, unlink, writeFile } from "node:fs/promises";
-import { createInterface } from "node:readline/promises";
 import process from "node:process";
+import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { bindingProperty, configValue, deploymentListIndicatesExisting } from "./setup.ts";
 
@@ -46,7 +46,8 @@ export function parseUninstallOptions(args: string[]): UninstallOptions {
     else if (argument === "--help") help = true;
     else if (argument === "--confirm") {
       const value = args[index + 1];
-      if (value === undefined || value.startsWith("--")) throw new Error("--confirm requires the exact Worker name");
+      if (value === undefined || value.startsWith("--"))
+        throw new Error("--confirm requires the exact Worker name");
       confirmation = value;
       index += 1;
     } else throw new Error(`Unknown option: ${argument ?? ""}`);
@@ -61,8 +62,16 @@ export function resolveUninstallTargets(config: string): UninstallTargets {
   const databaseName = bindingProperty(config, "DB", "database_name");
   const databaseId = bindingProperty(config, "DB", "database_id");
   const kvNamespaceId = bindingProperty(config, "OAUTH_KV", "id");
-  if (accountId === null || workerName === null || databaseName === null || databaseId === null || kvNamespaceId === null) {
-    throw new Error(`${CONFIG_PATH} does not identify one exact Worker, D1 database, and KV namespace`);
+  if (
+    accountId === null ||
+    workerName === null ||
+    databaseName === null ||
+    databaseId === null ||
+    kvNamespaceId === null
+  ) {
+    throw new Error(
+      `${CONFIG_PATH} does not identify one exact Worker, D1 database, and KV namespace`
+    );
   }
   return { accountId, workerName, databaseName, databaseId, kvNamespaceId };
 }
@@ -94,7 +103,8 @@ async function run(args: string[], allowFailure = false): Promise<CommandResult>
       resolve({ stdout, stderr, exitCode: code ?? -1 });
     });
   });
-  if (result.exitCode !== 0 && !allowFailure) throw new Error(`npx exited with status ${result.exitCode}`);
+  if (result.exitCode !== 0 && !allowFailure)
+    throw new Error(`npx exited with status ${result.exitCode}`);
   return result;
 }
 
@@ -102,7 +112,9 @@ async function requireExactName(workerName: string, supplied: string | null): Pr
   let answer = supplied;
   if (answer === null) {
     const prompt = createInterface({ input: process.stdin, output: process.stdout });
-    answer = await prompt.question(`Type the Worker name ${workerName} to permanently delete all listed cloud resources: `);
+    answer = await prompt.question(
+      `Type the Worker name ${workerName} to permanently delete all listed cloud resources: `
+    );
     prompt.close();
   }
   if (answer !== workerName) throw new Error("Confirmation did not exactly match the Worker name");
@@ -111,17 +123,37 @@ async function requireExactName(workerName: string, supplied: string | null): Pr
 async function loadProgress(targets: UninstallTargets): Promise<UninstallProgress> {
   try {
     const parsed: unknown = JSON.parse(await readFile(UNINSTALL_STATE_PATH, "utf8"));
-    if (typeof parsed !== "object" || parsed === null || !("targets" in parsed) || !("workerDeleted" in parsed) || !("kvDeleted" in parsed) || !("databaseDeleted" in parsed)) {
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("targets" in parsed) ||
+      !("workerDeleted" in parsed) ||
+      !("kvDeleted" in parsed) ||
+      !("databaseDeleted" in parsed)
+    ) {
       throw new Error("Invalid uninstall progress state");
     }
     const savedTargets = parsed.targets;
-    if (typeof savedTargets !== "object" || savedTargets === null || JSON.stringify(savedTargets) !== JSON.stringify(targets)) {
+    if (
+      typeof savedTargets !== "object" ||
+      savedTargets === null ||
+      JSON.stringify(savedTargets) !== JSON.stringify(targets)
+    ) {
       throw new Error("Uninstall progress does not match the current production config");
     }
-    if (typeof parsed.workerDeleted !== "boolean" || typeof parsed.kvDeleted !== "boolean" || typeof parsed.databaseDeleted !== "boolean") {
+    if (
+      typeof parsed.workerDeleted !== "boolean" ||
+      typeof parsed.kvDeleted !== "boolean" ||
+      typeof parsed.databaseDeleted !== "boolean"
+    ) {
       throw new Error("Invalid uninstall progress flags");
     }
-    return { targets, workerDeleted: parsed.workerDeleted, kvDeleted: parsed.kvDeleted, databaseDeleted: parsed.databaseDeleted };
+    return {
+      targets,
+      workerDeleted: parsed.workerDeleted,
+      kvDeleted: parsed.kvDeleted,
+      databaseDeleted: parsed.databaseDeleted
+    };
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return { targets, workerDeleted: false, kvDeleted: false, databaseDeleted: false };
@@ -137,11 +169,15 @@ async function saveProgress(progress: UninstallProgress): Promise<void> {
 async function main(): Promise<void> {
   const options = parseUninstallOptions(process.argv.slice(2));
   if (options.help) {
-    console.log("Usage: npm run uninstall                 # preview only\n       npm run uninstall -- --apply       # prompt for exact Worker name\n       npm run uninstall -- --apply --confirm WORKER_NAME");
+    console.log(
+      "Usage: npm run uninstall                 # preview only\n       npm run uninstall -- --apply       # prompt for exact Worker name\n       npm run uninstall -- --apply --confirm WORKER_NAME"
+    );
     return;
   }
   const targets = resolveUninstallTargets(await readFile(CONFIG_PATH, "utf8"));
-  console.log(`${summary(targets)}\n\nThis permanently deletes the remote memory database and cannot be undone.`);
+  console.log(
+    `${summary(targets)}\n\nThis permanently deletes the remote memory database and cannot be undone.`
+  );
   if (!options.apply) {
     console.log("\nPreview only. Rerun with --apply to perform this uninstall.");
     return;
@@ -150,22 +186,54 @@ async function main(): Promise<void> {
   const progress = await loadProgress(targets);
   await saveProgress(progress);
   if (!progress.workerDeleted) {
-    const probe = await run(["wrangler", "deployments", "list", "--name", targets.workerName, "--json", "--config", CONFIG_PATH], true);
+    const probe = await run(
+      [
+        "wrangler",
+        "deployments",
+        "list",
+        "--name",
+        targets.workerName,
+        "--json",
+        "--config",
+        CONFIG_PATH
+      ],
+      true
+    );
     if (deploymentListIndicatesExisting(probe)) {
       await run(["wrangler", "delete", targets.workerName, "--force", "--config", CONFIG_PATH]);
     } else {
-      console.log(`\nWorker ${targets.workerName} is already absent; continuing partial-install cleanup.`);
+      console.log(
+        `\nWorker ${targets.workerName} is already absent; continuing partial-install cleanup.`
+      );
     }
     progress.workerDeleted = true;
     await saveProgress(progress);
   }
   if (!progress.kvDeleted) {
-    await run(["wrangler", "kv", "namespace", "delete", "--namespace-id", targets.kvNamespaceId, "--skip-confirmation", "--config", CONFIG_PATH]);
+    await run([
+      "wrangler",
+      "kv",
+      "namespace",
+      "delete",
+      "--namespace-id",
+      targets.kvNamespaceId,
+      "--skip-confirmation",
+      "--config",
+      CONFIG_PATH
+    ]);
     progress.kvDeleted = true;
     await saveProgress(progress);
   }
   if (!progress.databaseDeleted) {
-    await run(["wrangler", "d1", "delete", targets.databaseName, "--skip-confirmation", "--config", CONFIG_PATH]);
+    await run([
+      "wrangler",
+      "d1",
+      "delete",
+      targets.databaseName,
+      "--skip-confirmation",
+      "--config",
+      CONFIG_PATH
+    ]);
     progress.databaseDeleted = true;
     await saveProgress(progress);
   }
@@ -176,13 +244,17 @@ async function main(): Promise<void> {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
   await unlink(UNINSTALL_STATE_PATH);
-  console.log(`\nRemoved the Worker, KV namespace, D1 database, and local production config. The remote data is not recoverable.`);
+  console.log(
+    `\nRemoved the Worker, KV namespace, D1 database, and local production config. The remote data is not recoverable.`
+  );
 }
 
 const entrypoint = process.argv[1];
 if (entrypoint !== undefined && import.meta.url === pathToFileURL(entrypoint).href) {
   main().catch((error: unknown) => {
-    console.error(`\nUninstall failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    console.error(
+      `\nUninstall failed: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
     process.exitCode = 1;
   });
 }

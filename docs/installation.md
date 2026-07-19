@@ -103,9 +103,29 @@ npm run setup -- --recover
 ```
 
 The command asks for confirmation, writes a new hash to the Worker secret store, and
-prints a new one-use URL. Completing it adds a replacement passkey; it does not erase
-existing passkeys or memory. Treat control of the Cloudflare account and local
-production config as administrator access.
+prints a new one-use URL. Existing passkeys continue working until the replacement
+passkey verifies. Completion then replaces every old passkey and revokes all browser
+sessions and MCP grants. Memory is not changed. Treat control of the Cloudflare
+account and local production config as administrator access.
+
+## Manage passkeys
+
+Open `/app/manage` to list passkeys, add a named passkey, or revoke one credential.
+The final credential cannot be revoked. These actions require a passkey sign-in from
+the last five minutes; sign in again if the management session is older.
+
+The owner CLI performs the same operations. Each command opens a browser and requires
+the owner passkey; it does not use Cloudflare credentials:
+
+```sh
+npm run passkeys -- list
+npm run passkeys -- add --name "Phone"
+npm run passkeys -- revoke CREDENTIAL_REF
+```
+
+The add command opens an expiring one-use registration page. Revoking a credential
+also revokes browser sessions created with it. Use `setup -- --recover` only when no
+remaining passkey is available or all existing credentials should be replaced.
 
 ## Uninstall a test deployment
 

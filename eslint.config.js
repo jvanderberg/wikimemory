@@ -1,7 +1,14 @@
 import js from "@eslint/js";
+import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
-const typedFiles = ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"];
+const typedFiles = [
+  "src/**/*.ts",
+  "web/src/**/*.ts",
+  "web/src/**/*.tsx",
+  "test/**/*.ts",
+  "scripts/**/*.ts"
+];
 
 export default tseslint.config(
   { ignores: ["node_modules", ".wrangler", "dist", "coverage"] },
@@ -11,7 +18,12 @@ export default tseslint.config(
     files: typedFiles,
     languageOptions: {
       parserOptions: {
-        project: ["./tsconfig.json", "./tsconfig.test.json", "./tsconfig.scripts.json"],
+        project: [
+          "./tsconfig.json",
+          "./tsconfig.web.json",
+          "./tsconfig.test.json",
+          "./tsconfig.scripts.json"
+        ],
         tsconfigRootDir: import.meta.dirname
       }
     }
@@ -20,8 +32,25 @@ export default tseslint.config(
     files: ["scripts/**/*.ts"],
     languageOptions: {
       globals: {
-        console: "readonly", crypto: "readonly", fetch: "readonly", process: "readonly",
-        URL: "readonly", URLSearchParams: "readonly"
+        console: "readonly",
+        crypto: "readonly",
+        fetch: "readonly",
+        process: "readonly",
+        URL: "readonly",
+        URLSearchParams: "readonly"
+      }
+    }
+  },
+  {
+    files: ["web/src/**/*.ts", "web/src/**/*.tsx"],
+    ...reactHooks.configs.flat["recommended-latest"],
+    languageOptions: {
+      globals: {
+        document: "readonly",
+        history: "readonly",
+        location: "readonly",
+        fetch: "readonly",
+        URLSearchParams: "readonly"
       }
     }
   },
@@ -33,7 +62,7 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unsafe-type-assertion": "error",
       "@typescript-eslint/no-unnecessary-type-assertion": "error",
-      "@typescript-eslint/restrict-template-expressions": ["error", { "allowNumber": true }]
+      "@typescript-eslint/restrict-template-expressions": ["error", { allowNumber: true }]
     }
   }
 );

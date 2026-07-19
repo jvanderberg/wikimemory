@@ -88,7 +88,7 @@ accidents, not a general secret classifier.
 
 - No raw SQL tool, arbitrary fetch tool, or attachment upload exists.
 - Bound all inputs, result counts, and MCP output sizes.
-- Escape all rendered Markdown and HTML according to context.
+- Render stored bodies as text in React; never inject stored HTML into the DOM.
 - Apply conservative request-rate limits in application code where practical, while
   treating provider-level rate infrastructure as deferred operational work.
 
@@ -143,14 +143,23 @@ provider emits and tests the equivalent timestamp.
 - A setup flow expires after five minutes and is deleted before verification.
 - Authentication challenges are single-use D1 rows; expired rows are removed when
   new setup or authentication challenges are created.
-- Recovery rotates the Worker secret through the owner's Cloudflare credentials and
-  adds a passkey; Cloudflare account control is therefore administrator access.
+- Recovery rotates the Worker secret through the owner's Cloudflare credentials.
+  The old passkeys remain usable until the replacement credential verifies. That
+  successful verification atomically keeps only the replacement credential and
+  consumes the one-use recovery value; it also revokes every MCP grant and browser
+  session.
+- Normal passkey registration is separate from recovery. It requires a passkey
+  authentication completed within five minutes and preserves existing credentials.
+- Listing exposes a SHA-256 credential reference rather than the raw WebAuthn
+  credential ID. Individual revocation also removes browser sessions established by
+  that credential. Both service logic and a D1 trigger forbid revoking the final
+  passkey.
 - Passkey private keys never reach Wikimemory. D1 contains only credential IDs,
   public keys, counters, transport hints, and backup/device classifications.
 
-V1 recovery adds a new passkey but does not yet expose passkey listing or revocation.
-If a passkey may be compromised, treat the deployment as requiring operator review;
-routine lost-device recovery alone does not revoke the old credential.
+Cloudflare account control is therefore the recovery authority. Recovery deliberately
+invalidates the old credentials even when the incident is merely a lost device; the
+owner must reconnect MCP clients and sign browser sessions in again.
 
 ## Security acceptance tests
 

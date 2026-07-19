@@ -24,7 +24,11 @@ describe("OAuth resource binding", () => {
   it("accepts only the exact canonical resource", () => {
     expect(bindAuthorizationResource(request(canonical), canonical).resource).toBe(canonical);
     expect(bindAuthorizationResource(request([canonical]), canonical).resource).toBe(canonical);
-    expect(() => bindAuthorizationResource(request("https://other.example/mcp"), canonical)).toThrow();
-    expect(() => bindAuthorizationResource(request([canonical, "https://other.example/mcp"]), canonical)).toThrow();
+    expect(() =>
+      bindAuthorizationResource(request("https://other.example/mcp"), canonical)
+    ).toThrow();
+    expect(() =>
+      bindAuthorizationResource(request([canonical, "https://other.example/mcp"]), canonical)
+    ).toThrow();
   });
 });

@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { access, mkdtemp, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
+import { access, mkdtemp, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline/promises";
 import process from "node:process";
+import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
@@ -67,12 +67,19 @@ export function parseOptions(args: string[]): Options {
     else if (argument === "--resume") resume = true;
     else if (argument === "--yes") yes = true;
     else if (argument === "--help") help = true;
-    else if (argument === "--worker-name" || argument === "--database-name" || argument === "--kv-name" || argument === "--account-id") {
+    else if (
+      argument === "--worker-name" ||
+      argument === "--database-name" ||
+      argument === "--kv-name" ||
+      argument === "--account-id"
+    ) {
       const value = args[index + 1];
-      if (value === undefined || value.startsWith("--")) throw new Error(`${argument} requires a value`);
+      if (value === undefined || value.startsWith("--"))
+        throw new Error(`${argument} requires a value`);
       if (argument === "--account-id") accountId = value;
       else {
-        if (!NAME_PATTERN.test(value)) throw new Error(`${argument} must contain only lowercase letters, digits, and hyphens`);
+        if (!NAME_PATTERN.test(value))
+          throw new Error(`${argument} must contain only lowercase letters, digits, and hyphens`);
         if (argument === "--worker-name") workerName = value;
         else if (argument === "--database-name") databaseName = value;
         else kvName = value;
@@ -99,7 +106,12 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-async function run(command: string, args: string[], input?: string, allowFailure = false): Promise<CommandResult> {
+async function run(
+  command: string,
+  args: string[],
+  input?: string,
+  allowFailure = false
+): Promise<CommandResult> {
   console.log(`\n> ${command} ${args.join(" ")}`);
   const result = await new Promise<CommandResult>((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
@@ -123,7 +135,8 @@ async function run(command: string, args: string[], input?: string, allowFailure
     });
     child.stdin.end(input === undefined ? undefined : `${input}\n`);
   });
-  if (result.exitCode !== 0 && !allowFailure) throw new Error(`${command} exited with status ${result.exitCode}`);
+  if (result.exitCode !== 0 && !allowFailure)
+    throw new Error(`${command} exited with status ${result.exitCode}`);
   return result;
 }
 
@@ -142,15 +155,40 @@ async function runInteractive(command: string, args: string[]): Promise<void> {
 }
 
 export function initialConfig(options: Options, account: Account): string {
-  return `${JSON.stringify({
-    $schema: "node_modules/wrangler/config-schema.json",
-    name: options.workerName,
-    account_id: account.id,
-    main: "src/index.ts",
-    compatibility_date: "2026-07-18",
-    compatibility_flags: ["nodejs_compat"],
-    vars: { APP_ENV: "production", APP_BASE_URL: BOOTSTRAP_ORIGIN }
-  }, null, 2)}\n`;
+  return `${JSON.stringify(
+    {
+      $schema: "node_modules/wrangler/config-schema.json",
+      name: options.workerName,
+      account_id: account.id,
+      main: "src/index.ts",
+      compatibility_date: "2026-07-18",
+      compatibility_flags: ["nodejs_compat"],
+      assets: {
+        directory: "./dist/web",
+        binding: "ASSETS",
+        not_found_handling: "single-page-application"
+      },
+      vars: { APP_ENV: "production", APP_BASE_URL: BOOTSTRAP_ORIGIN }
+    },
+    null,
+    2
+  )}\n`;
+}
+
+export function withWebAssets(config: string): string {
+  const parsed = z.record(z.string(), z.unknown()).parse(JSON.parse(config));
+  return `${JSON.stringify(
+    {
+      ...parsed,
+      assets: {
+        directory: "./dist/web",
+        binding: "ASSETS",
+        not_found_handling: "single-page-application"
+      }
+    },
+    null,
+    2
+  )}\n`;
 }
 
 export function deployedOrigin(output: string): string | null {
@@ -172,9 +210,15 @@ function hasBinding(config: string, binding: "DB" | "OAUTH_KV"): boolean {
   return new RegExp(`"binding"\\s*:\\s*"${binding}"`, "u").test(config);
 }
 
-export function bindingProperty(config: string, binding: "DB" | "OAUTH_KV", property: string): string | null {
+export function bindingProperty(
+  config: string,
+  binding: "DB" | "OAUTH_KV",
+  property: string
+): string | null {
   const objects = config.match(/\{[^{}]*\}/gu) ?? [];
-  const object = objects.find((candidate) => new RegExp(`"binding"\\s*:\\s*"${binding}"`, "u").test(candidate));
+  const object = objects.find((candidate) =>
+    new RegExp(`"binding"\\s*:\\s*"${binding}"`, "u").test(candidate)
+  );
   return object === undefined ? null : configValue(object, property);
 }
 
@@ -184,18 +228,60 @@ export function migrationBundle(sql: string, migrationName: string): string {
 }
 
 export async function applyRemoteMigrations(databaseName: string): Promise<void> {
-  await run("npx", ["wrangler", "d1", "execute", databaseName, "--remote", "--config", CONFIG_PATH, "--command", "CREATE TABLE IF NOT EXISTS d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)"]);
-  const listed = await run("npx", ["wrangler", "d1", "execute", databaseName, "--remote", "--config", CONFIG_PATH, "--json", "--command", "SELECT name FROM d1_migrations ORDER BY id"]);
-  const applied = new Set(D1_QUERY_SCHEMA.parse(JSON.parse(listed.stdout)).flatMap((result) => result.results.map((row) => row.name)));
-  const migrations = (await readdir("migrations")).filter((name) => /^\d+.*\.sql$/u.test(name)).sort();
+  await run("npx", [
+    "wrangler",
+    "d1",
+    "execute",
+    databaseName,
+    "--remote",
+    "--config",
+    CONFIG_PATH,
+    "--command",
+    "CREATE TABLE IF NOT EXISTS d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)"
+  ]);
+  const listed = await run("npx", [
+    "wrangler",
+    "d1",
+    "execute",
+    databaseName,
+    "--remote",
+    "--config",
+    CONFIG_PATH,
+    "--json",
+    "--command",
+    "SELECT name FROM d1_migrations ORDER BY id"
+  ]);
+  const applied = new Set(
+    D1_QUERY_SCHEMA.parse(JSON.parse(listed.stdout)).flatMap((result) =>
+      result.results.map((row) => row.name)
+    )
+  );
+  const migrations = (await readdir("migrations"))
+    .filter((name) => /^\d+.*\.sql$/u.test(name))
+    .sort();
   for (const migration of migrations) {
     if (applied.has(migration)) continue;
     const temporary = await mkdtemp(join(tmpdir(), "wikimemory-d1-migration-"));
-    if (!temporary.startsWith(`${tmpdir()}/wikimemory-d1-migration-`)) throw new Error("Unexpected migration temporary path");
+    if (!temporary.startsWith(`${tmpdir()}/wikimemory-d1-migration-`))
+      throw new Error("Unexpected migration temporary path");
     try {
       const bundlePath = join(temporary, migration);
-      await writeFile(bundlePath, migrationBundle(await readFile(join("migrations", migration), "utf8"), migration), "utf8");
-      await run("npx", ["wrangler", "d1", "execute", databaseName, "--remote", "--config", CONFIG_PATH, "--file", bundlePath]);
+      await writeFile(
+        bundlePath,
+        migrationBundle(await readFile(join("migrations", migration), "utf8"), migration),
+        "utf8"
+      );
+      await run("npx", [
+        "wrangler",
+        "d1",
+        "execute",
+        databaseName,
+        "--remote",
+        "--config",
+        CONFIG_PATH,
+        "--file",
+        bundlePath
+      ]);
     } finally {
       await rm(temporary, { recursive: true, force: true });
     }
@@ -221,15 +307,24 @@ async function selectAccount(options: Options): Promise<{ account: Account; iden
   try {
     whoami = WHOAMI_SCHEMA.parse(JSON.parse(result.stdout));
   } catch {
-    throw new Error("Wrangler authentication could not be determined. Run npx wrangler login first.");
+    throw new Error(
+      "Wrangler authentication could not be determined. Run npx wrangler login first."
+    );
   }
-  if (!whoami.loggedIn) throw new Error("Wrangler is not authenticated. Run npx wrangler login first.");
-  if (result.exitCode !== 0) throw new Error("Wrangler could not read the authenticated Cloudflare identity.");
-  if (whoami.accounts.length === 0) throw new Error("The authenticated Cloudflare identity has no accounts.");
+  if (!whoami.loggedIn)
+    throw new Error("Wrangler is not authenticated. Run npx wrangler login first.");
+  if (result.exitCode !== 0)
+    throw new Error("Wrangler could not read the authenticated Cloudflare identity.");
+  if (whoami.accounts.length === 0)
+    throw new Error("The authenticated Cloudflare identity has no accounts.");
   let account: Account | undefined;
-  if (options.accountId !== null) account = whoami.accounts.find((candidate) => candidate.id === options.accountId);
+  if (options.accountId !== null)
+    account = whoami.accounts.find((candidate) => candidate.id === options.accountId);
   else if (whoami.accounts.length === 1) account = whoami.accounts[0];
-  else if (options.yes) throw new Error("Multiple Cloudflare accounts are available; pass --account-id with the intended account ID.");
+  else if (options.yes)
+    throw new Error(
+      "Multiple Cloudflare accounts are available; pass --account-id with the intended account ID."
+    );
   else {
     console.log("\nCloudflare accounts:");
     whoami.accounts.forEach((candidate, index) => {
@@ -248,10 +343,16 @@ function bootstrapSecret(): { raw: string; hash: string } {
   return { raw, hash };
 }
 
-async function verifyEndpoint(origin: string, path: "/health" | "/ready", expectedStatus: "ok" | "ready"): Promise<void> {
+async function verifyEndpoint(
+  origin: string,
+  path: "/health" | "/ready",
+  expectedStatus: "ok" | "ready"
+): Promise<void> {
   const response = await fetch(`${origin}${path}`, { redirect: "error" });
   if (!response.ok) throw new Error(`Deployment ${path} check failed with HTTP ${response.status}`);
-  const parsed = z.object({ status: z.literal(expectedStatus), service: z.literal("wikimemory") }).safeParse(await response.json());
+  const parsed = z
+    .object({ status: z.literal(expectedStatus), service: z.literal("wikimemory") })
+    .safeParse(await response.json());
   if (!parsed.success) throw new Error(`Deployment ${path} returned an unexpected response.`);
 }
 
@@ -261,14 +362,20 @@ export function handoff(origin: string, rawToken: string): string {
 }
 
 async function remoteWorkerExists(workerName: string): Promise<boolean> {
-  const result = await run("npx", ["wrangler", "deployments", "list", "--name", workerName, "--json", "--config", CONFIG_PATH], undefined, true);
+  const result = await run(
+    "npx",
+    ["wrangler", "deployments", "list", "--name", workerName, "--json", "--config", CONFIG_PATH],
+    undefined,
+    true
+  );
   return deploymentListIndicatesExisting(result);
 }
 
 export function deploymentListIndicatesExisting(result: CommandResult): boolean {
   if (result.exitCode === 0) {
     const parsed = z.array(z.unknown()).safeParse(JSON.parse(result.stdout));
-    if (!parsed.success) throw new Error("Wrangler returned an unexpected deployment-list response.");
+    if (!parsed.success)
+      throw new Error("Wrangler returned an unexpected deployment-list response.");
     return true;
   }
   const diagnostic = `${result.stdout}\n${result.stderr}`.toLowerCase();
@@ -278,11 +385,16 @@ export function deploymentListIndicatesExisting(result: CommandResult): boolean 
 
 export function workersDevRegistrationRequired(result: CommandResult): boolean {
   const diagnostic = `${result.stdout}\n${result.stderr}`.toLowerCase();
-  return diagnostic.includes("register a workers.dev subdomain") ||
-    diagnostic.includes("workers/onboarding");
+  return (
+    diagnostic.includes("register a workers.dev subdomain") ||
+    diagnostic.includes("workers/onboarding")
+  );
 }
 
-async function existingResourceNames(): Promise<{ databases: Set<string>; namespaces: Set<string> }> {
+async function existingResourceNames(): Promise<{
+  databases: Set<string>;
+  namespaces: Set<string>;
+}> {
   const [d1, kv] = await Promise.all([
     run("npx", ["wrangler", "d1", "list", "--json", "--config", CONFIG_PATH]),
     run("npx", ["wrangler", "kv", "namespace", "list", "--config", CONFIG_PATH])
@@ -298,15 +410,40 @@ async function existingResourceNames(): Promise<{ databases: Set<string>; namesp
 async function ensureResources(options: Options): Promise<void> {
   let config = await readFile(CONFIG_PATH, "utf8");
   if (!hasBinding(config, "DB")) {
-    await run("npx", ["wrangler", "d1", "create", options.databaseName, "--update-config", "--binding", "DB", "--config", CONFIG_PATH]);
+    await run("npx", [
+      "wrangler",
+      "d1",
+      "create",
+      options.databaseName,
+      "--update-config",
+      "--binding",
+      "DB",
+      "--config",
+      CONFIG_PATH
+    ]);
     config = await readFile(CONFIG_PATH, "utf8");
   }
   if (!hasBinding(config, "OAUTH_KV")) {
-    await run("npx", ["wrangler", "kv", "namespace", "create", options.kvName, "--update-config", "--binding", "OAUTH_KV", "--config", CONFIG_PATH]);
+    await run("npx", [
+      "wrangler",
+      "kv",
+      "namespace",
+      "create",
+      options.kvName,
+      "--update-config",
+      "--binding",
+      "OAUTH_KV",
+      "--config",
+      CONFIG_PATH
+    ]);
   }
 }
 
 async function finalizeDeployment(options: Options): Promise<void> {
+  const existingConfig = await readFile(CONFIG_PATH, "utf8");
+  const assetConfig = withWebAssets(existingConfig);
+  if (assetConfig !== existingConfig) await writeFile(CONFIG_PATH, assetConfig, "utf8");
+  await run("npm", ["run", "build:web"]);
   let config = await readFile(CONFIG_PATH, "utf8");
   let origin = configuredOrigin(config);
   if (origin === null) throw new Error(`${CONFIG_PATH} has no valid APP_BASE_URL.`);
@@ -315,9 +452,13 @@ async function finalizeDeployment(options: Options): Promise<void> {
     let firstDeploy = await run("npx", deployArgs, undefined, true);
     if (firstDeploy.exitCode !== 0 && workersDevRegistrationRequired(firstDeploy)) {
       if (!process.stdin.isTTY || !process.stdout.isTTY) {
-        throw new Error("This Cloudflare account needs a workers.dev subdomain before its first Worker can be deployed. Rerun setup in an interactive terminal so Wrangler can register it.");
+        throw new Error(
+          "This Cloudflare account needs a workers.dev subdomain before its first Worker can be deployed. Rerun setup in an interactive terminal so Wrangler can register it."
+        );
       }
-      console.log("\nCloudflare needs a one-time account subdomain. Continuing interactively with Wrangler; choose an available workers.dev name when prompted.");
+      console.log(
+        "\nCloudflare needs a one-time account subdomain. Continuing interactively with Wrangler; choose an available workers.dev name when prompted."
+      );
       await runInteractive("npx", deployArgs);
       firstDeploy = await run("npx", deployArgs, undefined, true);
     }
@@ -325,30 +466,47 @@ async function finalizeDeployment(options: Options): Promise<void> {
       throw new Error(`npx exited with status ${firstDeploy.exitCode}`);
     }
     origin = deployedOrigin(`${firstDeploy.stdout}\n${firstDeploy.stderr}`);
-    if (origin === null) throw new Error(`Could not discover the workers.dev URL. Put the exact origin in APP_BASE_URL inside ${CONFIG_PATH}, then rerun with --resume.`);
+    if (origin === null)
+      throw new Error(
+        `Could not discover the workers.dev URL. Put the exact origin in APP_BASE_URL inside ${CONFIG_PATH}, then rerun with --resume.`
+      );
     config = await readFile(CONFIG_PATH, "utf8");
-    if (!config.includes(BOOTSTRAP_ORIGIN)) throw new Error(`Could not safely update APP_BASE_URL in ${CONFIG_PATH}.`);
+    if (!config.includes(BOOTSTRAP_ORIGIN))
+      throw new Error(`Could not safely update APP_BASE_URL in ${CONFIG_PATH}.`);
     await writeFile(CONFIG_PATH, config.replace(BOOTSTRAP_ORIGIN, origin), "utf8");
   }
   await ensureResources(options);
   config = await readFile(CONFIG_PATH, "utf8");
   const boundDatabaseName = bindingProperty(config, "DB", "database_name");
-  if (boundDatabaseName === null) throw new Error(`${CONFIG_PATH} has a DB binding without a database_name.`);
+  if (boundDatabaseName === null)
+    throw new Error(`${CONFIG_PATH} has a DB binding without a database_name.`);
   await applyRemoteMigrations(boundDatabaseName);
   const secret = bootstrapSecret();
   await run("npx", ["wrangler", "deploy", "--strict", "--config", CONFIG_PATH]);
-  await run("npx", ["wrangler", "secret", "put", "SETUP_TOKEN_HASH", "--config", CONFIG_PATH], secret.hash);
+  await run(
+    "npx",
+    ["wrangler", "secret", "put", "SETUP_TOKEN_HASH", "--config", CONFIG_PATH],
+    secret.hash
+  );
   await verifyEndpoint(origin, "/health", "ok");
   await verifyEndpoint(origin, "/ready", "ready");
   console.log(`\n${handoff(origin, secret.raw)}`);
 }
 
 async function freshDeployment(options: Options): Promise<void> {
-  if (await exists(CONFIG_PATH)) throw new Error(`${CONFIG_PATH} already exists. Use --resume to finish provisioning or --recover to add a passkey.`);
+  if (await exists(CONFIG_PATH))
+    throw new Error(
+      `${CONFIG_PATH} already exists. Use --resume to finish provisioning or --recover to add a passkey.`
+    );
   const selected = await selectAccount(options);
-  console.log(`\nPlanned Cloudflare resources:\n  Account: ${selected.account.name} (${selected.account.id})\n  Worker: ${options.workerName}\n  D1 database: ${options.databaseName}\n  KV namespace: ${options.kvName}\n  Identity: ${selected.identity}`);
+  console.log(
+    `\nPlanned Cloudflare resources:\n  Account: ${selected.account.name} (${selected.account.id})\n  Worker: ${options.workerName}\n  D1 database: ${options.databaseName}\n  KV namespace: ${options.kvName}\n  Identity: ${selected.identity}`
+  );
   await confirm("Create these resources and deploy Wikimemory?", options.yes);
-  await writeFile(CONFIG_PATH, initialConfig(options, selected.account), { encoding: "utf8", flag: "wx" });
+  await writeFile(CONFIG_PATH, initialConfig(options, selected.account), {
+    encoding: "utf8",
+    flag: "wx"
+  });
   let workerExists: boolean;
   let resources: { databases: Set<string>; namespaces: Set<string> };
   try {
@@ -362,35 +520,61 @@ async function freshDeployment(options: Options): Promise<void> {
   }
   const collisions = [
     ...(workerExists ? [`Worker ${options.workerName}`] : []),
-    ...(resources.databases.has(options.databaseName) ? [`D1 database ${options.databaseName}`] : []),
+    ...(resources.databases.has(options.databaseName)
+      ? [`D1 database ${options.databaseName}`]
+      : []),
     ...(resources.namespaces.has(options.kvName) ? [`KV namespace ${options.kvName}`] : [])
   ];
   if (collisions.length > 0) {
     await unlink(CONFIG_PATH);
-    throw new Error(`These remote names already exist: ${collisions.join(", ")}. No resources were created or changed; choose unused names.`);
+    throw new Error(
+      `These remote names already exist: ${collisions.join(", ")}. No resources were created or changed; choose unused names.`
+    );
   }
-  await writeFile(STATE_PATH, `${JSON.stringify({
-    preflightComplete: true,
-    accountId: selected.account.id,
-    workerName: options.workerName,
-    databaseName: options.databaseName,
-    kvName: options.kvName
-  } satisfies z.infer<typeof STATE_SCHEMA>, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
-  console.log(`\nCreated ${CONFIG_PATH}. It is ignored by git. If a later step fails, rerun with --resume.`);
+  await writeFile(
+    STATE_PATH,
+    `${JSON.stringify(
+      {
+        preflightComplete: true,
+        accountId: selected.account.id,
+        workerName: options.workerName,
+        databaseName: options.databaseName,
+        kvName: options.kvName
+      } satisfies z.infer<typeof STATE_SCHEMA>,
+      null,
+      2
+    )}\n`,
+    { encoding: "utf8", flag: "wx" }
+  );
+  console.log(
+    `\nCreated ${CONFIG_PATH}. It is ignored by git. If a later step fails, rerun with --resume.`
+  );
   await finalizeDeployment(options);
 }
 
 async function resumeDeployment(options: Options): Promise<void> {
   if (!(await exists(CONFIG_PATH))) throw new Error(`${CONFIG_PATH} is required for --resume.`);
-  if (!(await exists(STATE_PATH))) throw new Error(`${STATE_PATH} is missing, so successful collision preflight cannot be proven. Remove ${CONFIG_PATH} and start a fresh install.`);
+  if (!(await exists(STATE_PATH)))
+    throw new Error(
+      `${STATE_PATH} is missing, so successful collision preflight cannot be proven. Remove ${CONFIG_PATH} and start a fresh install.`
+    );
   const config = await readFile(CONFIG_PATH, "utf8");
   const state = STATE_SCHEMA.parse(JSON.parse(await readFile(STATE_PATH, "utf8")));
   const accountId = configValue(config, "account_id");
   const workerName = configValue(config, "name");
-  if (accountId === null || workerName === null) throw new Error(`${CONFIG_PATH} is missing account_id or name.`);
-  if (accountId !== state.accountId || workerName !== state.workerName) throw new Error("Production config no longer matches the collision-checked installer state.");
-  const resumedOptions = { ...options, databaseName: state.databaseName, kvName: state.kvName, workerName: state.workerName };
-  console.log(`\nResume target:\n  Account ID: ${accountId}\n  Worker: ${workerName}\n  D1 database: ${state.databaseName}\n  KV namespace: ${state.kvName}`);
+  if (accountId === null || workerName === null)
+    throw new Error(`${CONFIG_PATH} is missing account_id or name.`);
+  if (accountId !== state.accountId || workerName !== state.workerName)
+    throw new Error("Production config no longer matches the collision-checked installer state.");
+  const resumedOptions = {
+    ...options,
+    databaseName: state.databaseName,
+    kvName: state.kvName,
+    workerName: state.workerName
+  };
+  console.log(
+    `\nResume target:\n  Account ID: ${accountId}\n  Worker: ${workerName}\n  D1 database: ${state.databaseName}\n  KV namespace: ${state.kvName}`
+  );
   await confirm("Resume provisioning and rotate the one-time setup credential?", options.yes);
   await finalizeDeployment(resumedOptions);
 }
@@ -399,10 +583,15 @@ async function recover(options: Options): Promise<void> {
   if (!(await exists(CONFIG_PATH))) throw new Error(`${CONFIG_PATH} is required for recovery.`);
   const config = await readFile(CONFIG_PATH, "utf8");
   const origin = configuredOrigin(config);
-  if (origin === null || origin === BOOTSTRAP_ORIGIN) throw new Error(`${CONFIG_PATH} does not contain a deployed APP_BASE_URL; use --resume first.`);
+  if (origin === null || origin === BOOTSTRAP_ORIGIN)
+    throw new Error(`${CONFIG_PATH} does not contain a deployed APP_BASE_URL; use --resume first.`);
   await confirm(`Rotate the one-time owner setup credential for ${origin}?`, options.yes);
   const secret = bootstrapSecret();
-  await run("npx", ["wrangler", "secret", "put", "SETUP_TOKEN_HASH", "--config", CONFIG_PATH], secret.hash);
+  await run(
+    "npx",
+    ["wrangler", "secret", "put", "SETUP_TOKEN_HASH", "--config", CONFIG_PATH],
+    secret.hash
+  );
   await verifyEndpoint(origin, "/health", "ok");
   await verifyEndpoint(origin, "/ready", "ready");
   console.log(`\n${handoff(origin, secret.raw)}`);

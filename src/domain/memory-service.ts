@@ -2,24 +2,24 @@ import { requestHash } from "./crypto";
 import { DomainError } from "./errors";
 import { scanSecrets } from "./secret-scanner";
 import {
-  DOCUMENT_TYPES,
-  LINK_KINDS,
   type ActorContext,
-  type DocumentSnapshot,
+  DOCUMENT_TYPES,
   type DocumentIndexEntry,
+  type DocumentSnapshot,
   type DocumentType,
   type IngestRequest,
   type IngestResult,
+  LINK_KINDS,
   type LinkRequest,
-  type LintFinding,
   type LinkValue,
+  type LintFinding,
   type MemoryScope,
   type MetadataValue,
   type OwnerContext,
   type PurgeAuthorization,
   type RecallHit,
-  type RevisionHeader,
   type RestoreRequest,
+  type RevisionHeader,
   type StoredLink
 } from "./types";
 
@@ -66,17 +66,28 @@ const METADATA_KEY = /^[a-z][a-z0-9_]{0,63}$/;
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-function requireScope(actor: ActorContext, scope: "memory:read" | "memory:write" | "memory:admin"): void {
-  if (!actor.scopes.has(scope)) throw new DomainError("forbidden", `Missing required scope ${scope}`);
+function requireScope(
+  actor: ActorContext,
+  scope: "memory:read" | "memory:write" | "memory:admin"
+): void {
+  if (!actor.scopes.has(scope))
+    throw new DomainError("forbidden", `Missing required scope ${scope}`);
 }
 
 function validateRequest(request: IngestRequest): void {
   if (!request.operationId || request.operationId.length > 200) {
-    throw new DomainError("validation_failed", "operationId is required and must be at most 200 characters");
+    throw new DomainError(
+      "validation_failed",
+      "operationId is required and must be at most 200 characters"
+    );
   }
-  if (!SLUG.test(request.slug)) throw new DomainError("validation_failed", "slug must be lowercase kebab-case");
+  if (!SLUG.test(request.slug))
+    throw new DomainError("validation_failed", "slug must be lowercase kebab-case");
   if (!request.reason || request.reason.length > 500) {
-    throw new DomainError("validation_failed", "reason is required and must be at most 500 characters");
+    throw new DomainError(
+      "validation_failed",
+      "reason is required and must be at most 500 characters"
+    );
   }
   if (request.type !== undefined && !DOCUMENT_TYPES.includes(request.type)) {
     throw new DomainError("validation_failed", "unsupported document type");
@@ -106,7 +117,8 @@ function applyMetadataPatch(current: MetadataValue[], request: IngestRequest): M
   const map = metadataMap(current);
   const cardinalities = new Map(current.map((item) => [item.key, item.cardinality]));
   for (const [key, value] of Object.entries(request.metadata?.set ?? {})) {
-    if (!METADATA_KEY.test(key)) throw new DomainError("validation_failed", `invalid metadata key ${key}`);
+    if (!METADATA_KEY.test(key))
+      throw new DomainError("validation_failed", `invalid metadata key ${key}`);
     if (MULTI_KEYS.has(key) || cardinalities.get(key) === "multi") {
       throw new DomainError("validation_failed", `metadata key ${key} is multivalued`);
     }
@@ -119,11 +131,13 @@ function applyMetadataPatch(current: MetadataValue[], request: IngestRequest): M
     }
   }
   for (const [key, patch] of Object.entries(request.metadata?.multi ?? {})) {
-    if (!METADATA_KEY.test(key)) throw new DomainError("validation_failed", `invalid metadata key ${key}`);
+    if (!METADATA_KEY.test(key))
+      throw new DomainError("validation_failed", `invalid metadata key ${key}`);
     if (SINGLETON_KEYS.has(key) || cardinalities.get(key) === "singleton") {
       throw new DomainError("validation_failed", `metadata key ${key} is singleton`);
     }
-    const values = patch.replace === undefined ? new Set(map.get(key) ?? []) : new Set(patch.replace);
+    const values =
+      patch.replace === undefined ? new Set(map.get(key) ?? []) : new Set(patch.replace);
     for (const value of patch.add ?? []) values.add(value);
     for (const value of patch.remove ?? []) values.delete(value);
     if (values.size === 0) {
@@ -137,13 +151,16 @@ function applyMetadataPatch(current: MetadataValue[], request: IngestRequest): M
   const result: MetadataValue[] = [];
   for (const [key, values] of [...map].sort(([a], [b]) => a.localeCompare(b))) {
     for (const value of [...values].sort()) {
-      if (value.length > 4096) throw new DomainError("limit_exceeded", `metadata value for ${key} exceeds 4 KiB`);
+      if (value.length > 4096)
+        throw new DomainError("limit_exceeded", `metadata value for ${key} exceeds 4 KiB`);
       const cardinality = cardinalities.get(key);
-      if (cardinality === undefined) throw new DomainError("internal_error", `metadata cardinality missing for ${key}`);
+      if (cardinality === undefined)
+        throw new DomainError("internal_error", `metadata cardinality missing for ${key}`);
       result.push({ key, value, cardinality });
     }
   }
-  if (result.length > 100) throw new DomainError("limit_exceeded", "revision exceeds 100 metadata values");
+  if (result.length > 100)
+    throw new DomainError("limit_exceeded", "revision exceeds 100 metadata values");
   return result;
 }
 
@@ -153,7 +170,9 @@ function linkKey(link: LinkValue): string {
 
 function explicitLinks(current: StoredLink[], request: IngestRequest): LinkValue[] {
   const map = new Map(
-    current.filter((link) => link.origin === "explicit").map((link) => [linkKey(link), { kind: link.kind, targetSlug: link.targetSlug }])
+    current
+      .filter((link) => link.origin === "explicit")
+      .map((link) => [linkKey(link), { kind: link.kind, targetSlug: link.targetSlug }])
   );
   for (const link of request.links?.remove ?? []) map.delete(linkKey(link));
   for (const link of request.links?.add ?? []) {
@@ -195,7 +214,11 @@ export class MemoryService {
              FROM documents d JOIN revisions r ON r.doc_id = d.id
              WHERE d.workspace_id = ? AND d.slug = ? AND r.id = ?`
       )
-      .bind(...(revisionId === undefined ? [actor.workspaceId, slug] : [actor.workspaceId, slug, revisionId]))
+      .bind(
+        ...(revisionId === undefined
+          ? [actor.workspaceId, slug]
+          : [actor.workspaceId, slug, revisionId])
+      )
       .first<CurrentRow>();
     if (row === null) throw new DomainError("not_found", `No document named ${slug}`);
     const [metadata, links] = await Promise.all([
@@ -275,11 +298,16 @@ export class MemoryService {
     }));
   }
 
-  private async recallSymbols(actor: ActorContext, query: string, limit: number): Promise<RecallHit[]> {
+  private async recallSymbols(
+    actor: ActorContext,
+    query: string,
+    limit: number
+  ): Promise<RecallHit[]> {
     if (query === "") return [];
     const bounded = Math.max(1, Math.min(limit, 20));
-    const rows = await this.db.prepare(
-      `SELECT f.document_id, r.id revision_id, f.slug, d.type, f.title,
+    const rows = await this.db
+      .prepare(
+        `SELECT f.document_id, r.id revision_id, f.slug, d.type, f.title,
               NULLIF(f.summary, '') summary,
               CASE WHEN f.summary <> '' THEN f.summary ELSE substr(f.body, 1, 160) END snippet,
               CASE
@@ -294,10 +322,18 @@ export class MemoryService {
        WHERE f.workspace_id = ?
          AND (instr(f.title, ?) > 0 OR instr(f.summary, ?) > 0 OR instr(f.body, ?) > 0)
        ORDER BY phrase_boost DESC, f.document_id LIMIT ?`
-    ).bind(query, query, query, actor.workspaceId, query, query, query, bounded).all<{
-      document_id: string; revision_id: string; slug: string; type: DocumentType;
-      title: string; summary: string | null; snippet: string; phrase_boost: number;
-    }>();
+      )
+      .bind(query, query, query, actor.workspaceId, query, query, query, bounded)
+      .all<{
+        document_id: string;
+        revision_id: string;
+        slug: string;
+        type: DocumentType;
+        title: string;
+        summary: string | null;
+        snippet: string;
+        phrase_boost: number;
+      }>();
     return rows.results.map((row) => ({
       documentId: row.document_id,
       revisionId: row.revision_id,
@@ -313,18 +349,25 @@ export class MemoryService {
   async recallBySourceUrl(actor: ActorContext, sourceUrl: string, limit = 8): Promise<RecallHit[]> {
     requireScope(actor, "memory:read");
     const bounded = Math.max(1, Math.min(limit, 20));
-    const rows = await this.db.prepare(
-      `SELECT d.id document_id, r.id revision_id, d.slug, d.type, r.title, r.summary
+    const rows = await this.db
+      .prepare(
+        `SELECT d.id document_id, r.id revision_id, d.slug, d.type, r.title, r.summary
        FROM documents d
        JOIN current_revisions r ON r.doc_id = d.id
        JOIN revision_metadata rm ON rm.workspace_id = d.workspace_id
          AND rm.revision_id = r.id AND rm.key = 'source_url' AND rm.value = ?
        WHERE d.workspace_id = ?
        ORDER BY d.slug LIMIT ?`
-    ).bind(sourceUrl, actor.workspaceId, bounded).all<{
-      document_id: string; revision_id: string; slug: string; type: DocumentType;
-      title: string; summary: string | null;
-    }>();
+      )
+      .bind(sourceUrl, actor.workspaceId, bounded)
+      .all<{
+        document_id: string;
+        revision_id: string;
+        slug: string;
+        type: DocumentType;
+        title: string;
+        summary: string | null;
+      }>();
     return rows.results.map((row) => ({
       documentId: row.document_id,
       revisionId: row.revision_id,
@@ -337,7 +380,10 @@ export class MemoryService {
     }));
   }
 
-  async index(actor: ActorContext, options: { type?: DocumentType; limit?: number; afterSlug?: string } = {}): Promise<DocumentIndexEntry[]> {
+  async index(
+    actor: ActorContext,
+    options: { type?: DocumentType; limit?: number; afterSlug?: string } = {}
+  ): Promise<DocumentIndexEntry[]> {
     requireScope(actor, "memory:read");
     const bounded = Math.max(1, Math.min(options.limit ?? 50, 100));
     const clauses = ["d.workspace_id = ?", "d.slug > ?"];
@@ -359,8 +405,15 @@ export class MemoryService {
       )
       .bind(...bindings, bounded)
       .all<{
-        document_id: string; slug: string; type: DocumentType; revision_id: string;
-        revision_number: number; title: string; summary: string | null; created_at: string; status: string | null;
+        document_id: string;
+        slug: string;
+        type: DocumentType;
+        revision_id: string;
+        revision_number: number;
+        title: string;
+        summary: string | null;
+        created_at: string;
+        status: string | null;
       }>();
     return rows.results.map((row) => ({
       documentId: row.document_id,
@@ -389,9 +442,16 @@ export class MemoryService {
       )
       .bind(actor.workspaceId, slug, bounded)
       .all<{
-        revision_id: string; revision_number: number; parent_revision_id: string | null; created_at: string;
-        principal_id: string; client_id: string; agent_label: string | null; reason: string;
-        restored_from_revision_id: string | null; request_hash: string;
+        revision_id: string;
+        revision_number: number;
+        parent_revision_id: string | null;
+        created_at: string;
+        principal_id: string;
+        client_id: string;
+        agent_label: string | null;
+        reason: string;
+        restored_from_revision_id: string | null;
+        request_hash: string;
       }>();
     return rows.results.map((row) => ({
       revisionId: row.revision_id,
@@ -411,8 +471,9 @@ export class MemoryService {
     requireScope(actor, "memory:read");
     const bounded = Math.max(1, Math.min(limit, 200));
     const [unresolved, missing, orphans, stale] = await Promise.all([
-      this.db.prepare(
-        `SELECT d.slug, rl.target_slug
+      this.db
+        .prepare(
+          `SELECT d.slug, rl.target_slug
          FROM documents d JOIN current_revisions r ON r.doc_id = d.id
          JOIN revision_links rl ON rl.revision_id = r.id AND rl.workspace_id = d.workspace_id
          WHERE d.workspace_id = ? AND NOT EXISTS (
@@ -420,35 +481,70 @@ export class MemoryService {
            WHERE target.workspace_id = d.workspace_id AND target.slug = rl.target_slug
          )
          ORDER BY d.slug, rl.target_slug LIMIT ?`
-      ).bind(actor.workspaceId, bounded).all<{ slug: string; target_slug: string }>(),
-      this.db.prepare(
-        `SELECT d.slug FROM documents d JOIN current_revisions r ON r.doc_id = d.id
+        )
+        .bind(actor.workspaceId, bounded)
+        .all<{ slug: string; target_slug: string }>(),
+      this.db
+        .prepare(
+          `SELECT d.slug FROM documents d JOIN current_revisions r ON r.doc_id = d.id
          WHERE d.workspace_id = ? AND d.type != 'system' AND (r.summary IS NULL OR trim(r.summary) = '')
          ORDER BY d.slug LIMIT ?`
-      ).bind(actor.workspaceId, bounded).all<{ slug: string }>(),
-      this.db.prepare(
-        `SELECT d.slug FROM documents d
+        )
+        .bind(actor.workspaceId, bounded)
+        .all<{ slug: string }>(),
+      this.db
+        .prepare(
+          `SELECT d.slug FROM documents d
          WHERE d.workspace_id = ? AND d.type != 'system'
            AND NOT EXISTS (
              SELECT 1 FROM revision_links rl JOIN current_revisions sr ON sr.id = rl.revision_id
              WHERE rl.workspace_id = d.workspace_id AND (rl.target_document_id = d.id OR sr.doc_id = d.id)
            )
          ORDER BY d.slug LIMIT ?`
-      ).bind(actor.workspaceId, bounded).all<{ slug: string }>(),
-      this.db.prepare(
-        `SELECT d.slug, rm2.value last_active
+        )
+        .bind(actor.workspaceId, bounded)
+        .all<{ slug: string }>(),
+      this.db
+        .prepare(
+          `SELECT d.slug, rm2.value last_active
          FROM documents d JOIN current_revisions r ON r.doc_id = d.id
          JOIN revision_metadata rm ON rm.revision_id = r.id AND rm.key = 'status' AND rm.value = 'active'
          JOIN revision_metadata rm2 ON rm2.revision_id = r.id AND rm2.key = 'last_active'
          WHERE d.workspace_id = ? AND d.type = 'project' AND date(rm2.value) < date('now', '-90 days')
          ORDER BY d.slug LIMIT ?`
-      ).bind(actor.workspaceId, bounded).all<{ slug: string; last_active: string }>()
+        )
+        .bind(actor.workspaceId, bounded)
+        .all<{ slug: string; last_active: string }>()
     ]);
     return [
-      ...unresolved.results.map((row): LintFinding => ({ kind: "unresolved_reference", slug: row.slug, detail: `Target ${row.target_slug} does not exist` })),
-      ...missing.results.map((row): LintFinding => ({ kind: "missing_summary", slug: row.slug, detail: "Current revision has no summary" })),
-      ...orphans.results.map((row): LintFinding => ({ kind: "orphan", slug: row.slug, detail: "No current incoming or outgoing links" })),
-      ...stale.results.map((row): LintFinding => ({ kind: "stale_active_project", slug: row.slug, detail: `Active project was last active ${row.last_active}` }))
+      ...unresolved.results.map(
+        (row): LintFinding => ({
+          kind: "unresolved_reference",
+          slug: row.slug,
+          detail: `Target ${row.target_slug} does not exist`
+        })
+      ),
+      ...missing.results.map(
+        (row): LintFinding => ({
+          kind: "missing_summary",
+          slug: row.slug,
+          detail: "Current revision has no summary"
+        })
+      ),
+      ...orphans.results.map(
+        (row): LintFinding => ({
+          kind: "orphan",
+          slug: row.slug,
+          detail: "No current incoming or outgoing links"
+        })
+      ),
+      ...stale.results.map(
+        (row): LintFinding => ({
+          kind: "stale_active_project",
+          slug: row.slug,
+          detail: `Active project was last active ${row.last_active}`
+        })
+      )
     ].slice(0, bounded);
   }
 
@@ -478,7 +574,10 @@ export class MemoryService {
     const creating = current === null;
     if (current === null) {
       if (request.expectedRevisionId !== undefined) {
-        throw new DomainError("revision_conflict", "New documents cannot have an expected revision");
+        throw new DomainError(
+          "revision_conflict",
+          "New documents cannot have an expected revision"
+        );
       }
       if (request.type === undefined || request.title === undefined || request.body === undefined) {
         throw new DomainError("validation_failed", "New documents require type, title, and body");
@@ -498,12 +597,18 @@ export class MemoryService {
     const title = request.title ?? current?.title;
     const body = request.body ?? current?.body;
     const summary = request.summary === undefined ? (current?.summary ?? null) : request.summary;
-    if (title === undefined || body === undefined) throw new DomainError("validation_failed", "title and body are required");
+    if (title === undefined || body === undefined)
+      throw new DomainError("validation_failed", "title and body are required");
     let metadata = applyMetadataPatch(current?.metadata ?? [], request);
     if (creating && request.type === "source" && !metadata.some((item) => item.key === "trust")) {
-      const trustMetadata: MetadataValue = { key: "trust", value: "untrusted", cardinality: "singleton" };
-      metadata = [...metadata, trustMetadata]
-        .sort((a, b) => a.key.localeCompare(b.key) || a.value.localeCompare(b.value));
+      const trustMetadata: MetadataValue = {
+        key: "trust",
+        value: "untrusted",
+        cardinality: "singleton"
+      };
+      metadata = [...metadata, trustMetadata].sort(
+        (a, b) => a.key.localeCompare(b.key) || a.value.localeCompare(b.value)
+      );
     }
     const explicit = explicitLinks(current?.links ?? [], request);
 
@@ -512,11 +617,18 @@ export class MemoryService {
     const findings = await scanSecrets(secretFields);
     if (findings.length > 0) {
       throw new DomainError("secret_detected", "Likely secret material was detected", {
-        findings: findings.map(({ field, category, fingerprint }) => ({ field, category, fingerprint }))
+        findings: findings.map(({ field, category, fingerprint }) => ({
+          field,
+          category,
+          fingerprint
+        }))
       });
     }
 
-    const targetSlugs = new Set([...explicit.map((link) => link.targetSlug), ...derivedSlugs(body, request.slug)]);
+    const targetSlugs = new Set([
+      ...explicit.map((link) => link.targetSlug),
+      ...derivedSlugs(body, request.slug)
+    ]);
     const resolved = new Map<string, string>();
     for (const slug of targetSlugs) {
       const target = await this.db
@@ -527,18 +639,29 @@ export class MemoryService {
     }
     for (const link of explicit) {
       if (!resolved.has(link.targetSlug)) {
-        throw new DomainError("validation_failed", `Explicit link target ${link.targetSlug} does not exist`);
+        throw new DomainError(
+          "validation_failed",
+          `Explicit link target ${link.targetSlug} does not exist`
+        );
       }
     }
 
     const links: StoredLink[] = [
-      ...explicit.map((link): StoredLink => ({ ...link, origin: "explicit", targetDocumentId: resolved.get(link.targetSlug) ?? null })),
-      ...derivedSlugs(body, request.slug).map((targetSlug): StoredLink => ({
-        kind: "related",
-        targetSlug,
-        origin: "body",
-        targetDocumentId: resolved.get(targetSlug) ?? null
-      }))
+      ...explicit.map(
+        (link): StoredLink => ({
+          ...link,
+          origin: "explicit",
+          targetDocumentId: resolved.get(link.targetSlug) ?? null
+        })
+      ),
+      ...derivedSlugs(body, request.slug).map(
+        (targetSlug): StoredLink => ({
+          kind: "related",
+          targetSlug,
+          origin: "body",
+          targetDocumentId: resolved.get(targetSlug) ?? null
+        })
+      )
     ];
     if (links.length > 100) throw new DomainError("limit_exceeded", "revision exceeds 100 links");
 
@@ -550,7 +673,9 @@ export class MemoryService {
     if (creating) {
       statements.push(
         this.db
-          .prepare("INSERT INTO documents(id, workspace_id, type, slug, created_at) VALUES (?, ?, ?, ?, ?)")
+          .prepare(
+            "INSERT INTO documents(id, workspace_id, type, slug, created_at) VALUES (?, ?, ?, ?, ?)"
+          )
           .bind(documentId, actor.workspaceId, request.type, request.slug, createdAt)
       );
     }
@@ -614,7 +739,14 @@ export class MemoryService {
             `INSERT INTO revision_links(workspace_id, revision_id, kind, target_slug, target_document_id, origin)
              VALUES (?, ?, ?, ?, ?, ?)`
           )
-          .bind(actor.workspaceId, revisionId, link.kind, link.targetSlug, link.targetDocumentId, link.origin)
+          .bind(
+            actor.workspaceId,
+            revisionId,
+            link.kind,
+            link.targetSlug,
+            link.targetDocumentId,
+            link.origin
+          )
       );
     }
     statements.push(
@@ -643,7 +775,8 @@ export class MemoryService {
       await this.db.batch(statements);
     } catch (error) {
       const racedReplay = await this.findOperation(actor.workspaceId, request.operationId);
-      if (racedReplay !== null) return this.replayResult(actor, request, hash, operationKind, racedReplay);
+      if (racedReplay !== null)
+        return this.replayResult(actor, request, hash, operationKind, racedReplay);
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("revision_conflict")) {
         let latest: DocumentSnapshot | null = null;
@@ -705,8 +838,12 @@ export class MemoryService {
 
     const currentMetadata = metadataMap(current.metadata);
     const targetMetadata = metadataMap(target.metadata);
-    const currentCardinalities = new Map(current.metadata.map((item) => [item.key, item.cardinality]));
-    const targetCardinalities = new Map(target.metadata.map((item) => [item.key, item.cardinality]));
+    const currentCardinalities = new Map(
+      current.metadata.map((item) => [item.key, item.cardinality])
+    );
+    const targetCardinalities = new Map(
+      target.metadata.map((item) => [item.key, item.cardinality])
+    );
     const set: Record<string, string | null> = {};
     const multi: NonNullable<IngestRequest["metadata"]>["multi"] = {};
     for (const key of new Set([...currentMetadata.keys(), ...targetMetadata.keys()])) {
@@ -742,12 +879,24 @@ export class MemoryService {
     );
   }
 
-  async authorizePurge(actor: OwnerContext, slug: string, confirmation: string): Promise<PurgeAuthorization> {
-    if (confirmation !== slug) throw new DomainError("validation_failed", "Purge confirmation must exactly match the slug");
+  async authorizePurge(
+    actor: OwnerContext,
+    slug: string,
+    confirmation: string
+  ): Promise<PurgeAuthorization> {
+    if (confirmation !== slug)
+      throw new DomainError("validation_failed", "Purge confirmation must exactly match the slug");
     const authenticatedAt = Date.parse(actor.reauthenticatedAt);
     const now = Date.now();
-    if (!Number.isFinite(authenticatedAt) || authenticatedAt > now + 60_000 || now - authenticatedAt > 300_000) {
-      throw new DomainError("reauthentication_required", "Passkey authentication must be less than five minutes old");
+    if (
+      !Number.isFinite(authenticatedAt) ||
+      authenticatedAt > now + 60_000 ||
+      now - authenticatedAt > 300_000
+    ) {
+      throw new DomainError(
+        "reauthentication_required",
+        "Passkey authentication must be less than five minutes old"
+      );
     }
     const document = await this.db
       .prepare("SELECT id FROM documents WHERE workspace_id = ? AND slug = ?")
@@ -757,7 +906,12 @@ export class MemoryService {
     const id = crypto.randomUUID();
     const createdAt = new Date(now).toISOString().replace(/\.\d{3}Z$/, "Z");
     const expiresAt = new Date(now + 300_000).toISOString().replace(/\.\d{3}Z$/, "Z");
-    const hash = await requestHash({ workspaceId: actor.workspaceId, documentId: document.id, principalId: actor.principalId, slug });
+    const hash = await requestHash({
+      workspaceId: actor.workspaceId,
+      documentId: document.id,
+      principalId: actor.principalId,
+      slug
+    });
     await this.db
       .prepare(
         `INSERT INTO purge_authorizations(id, workspace_id, document_id, principal_id, request_hash, expires_at, created_at)
@@ -768,7 +922,11 @@ export class MemoryService {
     return { id, documentId: document.id, slug, expiresAt };
   }
 
-  async purge(actor: OwnerContext, authorizationId: string, slug: string): Promise<{ purgedRevisions: number }> {
+  async purge(
+    actor: OwnerContext,
+    authorizationId: string,
+    slug: string
+  ): Promise<{ purgedRevisions: number }> {
     const authorization = await this.db
       .prepare(
         `SELECT p.document_id, p.principal_id, p.request_hash, p.expires_at
@@ -777,7 +935,12 @@ export class MemoryService {
          WHERE p.id = ? AND p.workspace_id = ? AND d.slug = ?`
       )
       .bind(authorizationId, actor.workspaceId, slug)
-      .first<{ document_id: string; principal_id: string; request_hash: string; expires_at: string }>();
+      .first<{
+        document_id: string;
+        principal_id: string;
+        request_hash: string;
+        expires_at: string;
+      }>();
     if (authorization === null || authorization.principal_id !== actor.principalId) {
       throw new DomainError("forbidden", "Invalid purge authorization");
     }
@@ -876,7 +1039,10 @@ export class MemoryService {
     return rows.results;
   }
 
-  private async findOperation(workspaceId: string, operationId: string): Promise<OperationRow | null> {
+  private async findOperation(
+    workspaceId: string,
+    operationId: string
+  ): Promise<OperationRow | null> {
     return this.db
       .prepare(
         `SELECT request_hash, principal_id, kind, status, result_document_id, result_revision_id
@@ -898,9 +1064,13 @@ export class MemoryService {
       operation.kind !== operationKind ||
       operation.request_hash !== hash
     ) {
-      throw new DomainError("idempotency_mismatch", "Operation ID was already used for a different request");
+      throw new DomainError(
+        "idempotency_mismatch",
+        "Operation ID was already used for a different request"
+      );
     }
-    if (operation.status === "purged") throw new DomainError("gone", "The operation's document was permanently purged");
+    if (operation.status === "purged")
+      throw new DomainError("gone", "The operation's document was permanently purged");
     if (operation.result_revision_id === null || operation.result_document_id === null) {
       throw new DomainError("internal_error", "Completed operation has no result");
     }
@@ -908,7 +1078,8 @@ export class MemoryService {
       .prepare("SELECT revision_number FROM revisions WHERE workspace_id = ? AND id = ?")
       .bind(actor.workspaceId, operation.result_revision_id)
       .first<{ revision_number: number }>();
-    if (row === null) throw new DomainError("internal_error", "Completed operation result is missing");
+    if (row === null)
+      throw new DomainError("internal_error", "Completed operation result is missing");
     return {
       documentId: operation.result_document_id,
       revisionId: operation.result_revision_id,

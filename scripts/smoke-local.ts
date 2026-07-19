@@ -25,8 +25,12 @@ function decodeMcp<T>(payload: string, schema: z.ZodType<T>): T {
 
 const registrationSchema = z.object({ client_id: z.string() });
 const tokenSchema = z.object({ access_token: z.string() });
-const initializeSchema = z.object({ result: z.object({ serverInfo: z.object({ name: z.string() }) }) });
-const toolsSchema = z.object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) });
+const initializeSchema = z.object({
+  result: z.object({ serverInfo: z.object({ name: z.string() }) })
+});
+const toolsSchema = z.object({
+  result: z.object({ tools: z.array(z.object({ name: z.string() })) })
+});
 const basicToolResponseSchema = z.object({ result: z.object({ isError: z.boolean().optional() }) });
 
 const registration = await json(
@@ -58,24 +62,36 @@ authorize.search = new URLSearchParams({
   resource: `${base}/mcp`
 }).toString();
 
-const consent = await fetch(authorize, { redirect: "manual" });
-assert(consent.ok, `consent page failed (${consent.status})`);
-assert(consent.headers.get("content-security-policy")?.includes(new URL(redirectUri).origin), "consent CSP does not allow the validated callback origin");
-const consentHtml = await consent.text();
-const csrf = consentHtml.match(/name="csrf" value="([^"]+)"/)?.[1];
-const cookie = consent.headers.get("set-cookie")?.split(";", 1)[0];
-assert(csrf && cookie, "consent page did not issue CSRF state");
+const consentRedirect = await fetch(authorize, { redirect: "manual" });
+assert(consentRedirect.status === 302, `consent redirect failed (${consentRedirect.status})`);
+const consentLocation = consentRedirect.headers.get("location");
+assert(consentLocation !== null, "consent redirect returned no location");
+const consent = new URL(consentLocation);
+assert(consent.pathname === "/local-authorize", "consent did not use the React route");
 
-const approval = await fetch(authorize, {
+const optionsUrl = new URL("/api/local-authorize/options", consent);
+optionsUrl.search = consent.search;
+const options = await json(
+  await fetch(optionsUrl),
+  "local authorization options",
+  z.object({ clientName: z.string(), requestedScopes: z.array(z.string()) })
+);
+assert(options.clientName === "Wikimemory local smoke test", "consent named the wrong client");
+assert(options.requestedScopes.includes("memory:read"), "consent omitted requested scopes");
+
+const approveUrl = new URL("/api/local-authorize/approve", consent);
+approveUrl.search = consent.search;
+const approval = await fetch(approveUrl, {
   method: "POST",
-  redirect: "manual",
-  headers: { "content-type": "application/x-www-form-urlencoded", cookie },
-  body: new URLSearchParams({ csrf })
+  headers: { "content-type": "application/json", origin: new URL(base).origin },
+  body: "{}"
 });
-assert(approval.status === 302, `approval failed (${approval.status}): ${await approval.text()}`);
-const callbackLocation = approval.headers.get("location");
-assert(callbackLocation !== null, "approval returned no callback location");
-const callback = new URL(callbackLocation);
+const approved = await json(
+  approval,
+  "local authorization approval",
+  z.object({ redirectTo: z.string() })
+);
+const callback = new URL(approved.redirectTo);
 assert(callback.searchParams.get("state") === "smoke-state", "OAuth state was not preserved");
 const code = callback.searchParams.get("code");
 assert(code, "approval returned no authorization code");
@@ -123,15 +139,29 @@ const sessionId = initializeResponse.headers.get("mcp-session-id");
 const mcpHeaders = sessionId ? { ...commonHeaders, "mcp-session-id": sessionId } : commonHeaders;
 let requestId = 10;
 
-async function callTool<T>(name: string, args: Record<string, unknown>, outputSchema: z.ZodType<T>): Promise<T> {
+async function callTool<T>(
+  name: string,
+  args: Record<string, unknown>,
+  outputSchema: z.ZodType<T>
+): Promise<T> {
   const response = await fetch(`${base}/mcp`, {
     method: "POST",
     headers: mcpHeaders,
-    body: JSON.stringify({ jsonrpc: "2.0", id: requestId++, method: "tools/call", params: { name, arguments: args } })
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: requestId++,
+      method: "tools/call",
+      params: { name, arguments: args }
+    })
   });
-  const responseSchema = z.object({ result: z.object({ isError: z.boolean().optional(), structuredContent: z.unknown() }) });
+  const responseSchema = z.object({
+    result: z.object({ isError: z.boolean().optional(), structuredContent: z.unknown() })
+  });
   const payload = decodeMcp(await response.text(), responseSchema);
-  assert(payload.result.isError !== true, `${name} returned an error: ${JSON.stringify(payload.result)}`);
+  assert(
+    payload.result.isError !== true,
+    `${name} returned an error: ${JSON.stringify(payload.result)}`
+  );
   return outputSchema.parse(payload.result.structuredContent);
 }
 
@@ -154,7 +184,12 @@ for (const required of ["orient", "recall", "get", "ingest"]) {
 const orientResponse = await fetch(`${base}/mcp`, {
   method: "POST",
   headers: mcpHeaders,
-  body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "orient", arguments: {} } })
+  body: JSON.stringify({
+    jsonrpc: "2.0",
+    id: 3,
+    method: "tools/call",
+    params: { name: "orient", arguments: {} }
+  })
 });
 const orient = decodeMcp(await orientResponse.text(), basicToolResponseSchema);
 assert(orient.result.isError !== true, "orient returned an error");
@@ -165,83 +200,166 @@ const sourceUrl = `https://example.test/archive/${suffix}`;
 const firstBody = `First local smoke body ${suffix}`;
 const secondBody = `Second local smoke body ${suffix}`;
 const ingestOutputSchema = z.object({ revisionId: z.string() });
-const first = await callTool("ingest", {
-  operationId: crypto.randomUUID(), reason: "web smoke create", slug: smokeSlug,
-  type: "note", title: "Web smoke page", body: firstBody, summary: "Temporary web integration fixture",
-  singletonMetadata: { source_url: sourceUrl, author: "Local smoke author" }
-}, ingestOutputSchema);
-const second = await callTool("ingest", {
-  operationId: crypto.randomUUID(), reason: "web smoke update", slug: smokeSlug,
-  expectedRevisionId: first.revisionId, body: secondBody
-}, ingestOutputSchema);
-const recallResult = await callTool("recall", { query: suffix, limit: 10 }, z.object({ hits: z.array(z.object({ slug: z.string() })) }));
-assert(recallResult.hits.some((hit) => hit.slug === smokeSlug), "recall structured content is invalid or missing the fixture");
-const sourceRecall = await callTool("recall", { sourceUrl }, z.object({ hits: z.array(z.object({ slug: z.string() })) }));
-assert(sourceRecall.hits.some((hit) => hit.slug === smokeSlug), "exact source-URL recall did not find the fixture");
-const historyResult = await callTool("history", { slug: smokeSlug }, z.object({ revisions: z.array(z.unknown()) }));
+const first = await callTool(
+  "ingest",
+  {
+    operationId: crypto.randomUUID(),
+    reason: "web smoke create",
+    slug: smokeSlug,
+    type: "note",
+    title: "Web smoke page",
+    body: firstBody,
+    summary: "Temporary web integration fixture",
+    singletonMetadata: { source_url: sourceUrl, author: "Local smoke author" }
+  },
+  ingestOutputSchema
+);
+const second = await callTool(
+  "ingest",
+  {
+    operationId: crypto.randomUUID(),
+    reason: "web smoke update",
+    slug: smokeSlug,
+    expectedRevisionId: first.revisionId,
+    body: secondBody
+  },
+  ingestOutputSchema
+);
+const recallResult = await callTool(
+  "recall",
+  { query: suffix, limit: 10 },
+  z.object({ hits: z.array(z.object({ slug: z.string() })) })
+);
+assert(
+  recallResult.hits.some((hit) => hit.slug === smokeSlug),
+  "recall structured content is invalid or missing the fixture"
+);
+const sourceRecall = await callTool(
+  "recall",
+  { sourceUrl },
+  z.object({ hits: z.array(z.object({ slug: z.string() })) })
+);
+assert(
+  sourceRecall.hits.some((hit) => hit.slug === smokeSlug),
+  "exact source-URL recall did not find the fixture"
+);
+const historyResult = await callTool(
+  "history",
+  { slug: smokeSlug },
+  z.object({ revisions: z.array(z.unknown()) })
+);
 assert(historyResult.revisions.length === 2, "history structured content is invalid");
 await callTool("lint", { limit: 20 }, z.object({ findings: z.array(z.unknown()) }));
 
-const webLogin = await fetch(`${base}/app/login`, { method: "POST", redirect: "manual" });
-assert(webLogin.status === 303, `web login failed (${webLogin.status})`);
+const webLogin = await fetch(`${base}/api/app/login`, {
+  method: "POST",
+  headers: { "content-type": "application/json", origin: new URL(base).origin },
+  body: "{}"
+});
+assert(webLogin.ok, `web login failed (${webLogin.status})`);
 const webCookie = webLogin.headers.get("set-cookie")?.split(";", 1)[0];
 assert(webCookie, "web login returned no session cookie");
-const historicalPage = await fetch(`${base}/app/docs/${smokeSlug}?revision=${first.revisionId}`, { headers: { cookie: webCookie } });
-assert(historicalPage.ok, `historical page failed (${historicalPage.status})`);
-const historicalHtml = await historicalPage.text();
-const csrfCookie = historicalPage.headers.get("set-cookie")?.split(";", 1)[0];
-const webCsrf = historicalHtml.match(/name="csrf" value="([^"]+)"/)?.[1];
-assert(csrfCookie && webCsrf, "document page returned no CSRF state");
-const browserCookies = `${webCookie}; ${csrfCookie}`;
+const historicalPage = await fetch(
+  `${base}/api/app/docs/${smokeSlug}?revision=${first.revisionId}`,
+  {
+    headers: { cookie: webCookie }
+  }
+);
+const historical = await json(
+  historicalPage,
+  "historical document",
+  z.object({ document: z.object({ body: z.string() }) })
+);
+assert(historical.document.body === firstBody, "historical API returned the wrong body");
 
-const rejectedRestore = await fetch(`${base}/app/docs/${smokeSlug}/restore`, {
+const rejectedRestore = await fetch(`${base}/api/app/docs/${smokeSlug}/restore`, {
   method: "POST",
-  headers: { cookie: browserCookies, "content-type": "application/x-www-form-urlencoded" },
-  body: new URLSearchParams({ csrf: "wrong-token", targetRevisionId: first.revisionId, expectedRevisionId: second.revisionId })
+  headers: { cookie: webCookie }
 });
 assert(rejectedRestore.status === 403, `invalid CSRF was not rejected (${rejectedRestore.status})`);
 
-const restoreResponse = await fetch(`${base}/app/docs/${smokeSlug}/restore`, {
-  method: "POST", redirect: "manual",
-  headers: { cookie: browserCookies, "content-type": "application/x-www-form-urlencoded" },
-  body: new URLSearchParams({ csrf: webCsrf, targetRevisionId: first.revisionId, expectedRevisionId: second.revisionId })
-});
-assert(restoreResponse.status === 303, `web restore failed (${restoreResponse.status}): ${await restoreResponse.text()}`);
-const restoredPage = await fetch(`${base}/app/docs/${smokeSlug}`, { headers: { cookie: browserCookies } });
-assert((await restoredPage.text()).includes(firstBody), "restored page does not contain the historical body");
-
-const purgeAuthorization = await fetch(`${base}/app/docs/${smokeSlug}/purge-authorize`, {
+const restoreResponse = await fetch(`${base}/api/app/docs/${smokeSlug}/restore`, {
   method: "POST",
-  headers: { cookie: browserCookies, "content-type": "application/x-www-form-urlencoded" },
-  body: new URLSearchParams({ csrf: webCsrf, confirmation: smokeSlug })
+  headers: {
+    cookie: webCookie,
+    "content-type": "application/json",
+    origin: new URL(base).origin
+  },
+  body: JSON.stringify({
+    targetRevisionId: first.revisionId,
+    expectedRevisionId: second.revisionId
+  })
 });
-const purgeHtml = await purgeAuthorization.text();
-const authorizationId = purgeHtml.match(/name="authorizationId" value="([^"]+)"/)?.[1];
-assert(purgeAuthorization.ok && authorizationId, `purge authorization failed (${purgeAuthorization.status})`);
-const purgeResponse = await fetch(`${base}/app/docs/${smokeSlug}/purge-apply`, {
-  method: "POST", redirect: "manual",
-  headers: { cookie: browserCookies, "content-type": "application/x-www-form-urlencoded" },
-  body: new URLSearchParams({ csrf: webCsrf, authorizationId })
+assert(restoreResponse.ok, `web restore failed (${restoreResponse.status})`);
+const restoredPage = await fetch(`${base}/api/app/docs/${smokeSlug}`, {
+  headers: { cookie: webCookie }
 });
-assert(purgeResponse.status === 303, `purge apply failed (${purgeResponse.status}): ${await purgeResponse.text()}`);
+const restored = await json(
+  restoredPage,
+  "restored document",
+  z.object({ document: z.object({ body: z.string() }) })
+);
+assert(restored.document.body === firstBody, "restored page does not contain the historical body");
 
-const jsonlExport = await fetch(`${base}/app/export.jsonl`, { headers: { cookie: browserCookies } });
+const purgeAuthorization = await fetch(`${base}/api/app/docs/${smokeSlug}/purge-authorize`, {
+  method: "POST",
+  headers: {
+    cookie: webCookie,
+    "content-type": "application/json",
+    origin: new URL(base).origin
+  },
+  body: JSON.stringify({ confirmation: smokeSlug })
+});
+const authorization = await json(
+  purgeAuthorization,
+  "purge authorization",
+  z.object({ id: z.string() })
+);
+const purgeResponse = await fetch(`${base}/api/app/docs/${smokeSlug}/purge-apply`, {
+  method: "POST",
+  headers: {
+    cookie: webCookie,
+    "content-type": "application/json",
+    origin: new URL(base).origin
+  },
+  body: JSON.stringify({ authorizationId: authorization.id })
+});
+assert(purgeResponse.ok, `purge apply failed (${purgeResponse.status})`);
+
+const jsonlExport = await fetch(`${base}/api/app/export.jsonl`, {
+  headers: { cookie: webCookie }
+});
 const archive = await jsonlExport.text();
 assert(jsonlExport.ok && archive.includes('"record":"manifest"'), "JSONL export failed");
-assert(!archive.includes(firstBody) && !archive.includes(secondBody), "purged content leaked into export");
+assert(
+  !archive.includes(firstBody) && !archive.includes(secondBody),
+  "purged content leaked into export"
+);
 assert(archive.includes('"record":"purge_tombstone"'), "purge tombstone is missing from export");
-const markdownExport = await fetch(`${base}/app/export.md`, { headers: { cookie: browserCookies } });
-assert(markdownExport.ok && (await markdownExport.text()).includes("# Wikimemory export"), "Markdown export failed");
-
-const managePage = await fetch(`${base}/app/manage`, { headers: { cookie: browserCookies } });
-const manageHtml = await managePage.text();
-const grantId = manageHtml.match(/name="grantId" value="([^"]+)"/)?.[1];
-assert(managePage.ok && grantId, "Manage page did not show the OAuth grant");
-const revokeResponse = await fetch(`${base}/app/grants/revoke`, {
-  method: "POST", redirect: "manual",
-  headers: { cookie: browserCookies, "content-type": "application/x-www-form-urlencoded" },
-  body: new URLSearchParams({ csrf: webCsrf, grantId })
+const markdownExport = await fetch(`${base}/api/app/export.md`, {
+  headers: { cookie: webCookie }
 });
-assert(revokeResponse.status === 303, `grant revocation failed (${revokeResponse.status})`);
+assert(
+  markdownExport.ok && (await markdownExport.text()).includes("# Wikimemory export"),
+  "Markdown export failed"
+);
+
+const manage = await json(
+  await fetch(`${base}/api/app/manage`, { headers: { cookie: webCookie } }),
+  "manage API",
+  z.object({ clients: z.array(z.object({ id: z.string() })) })
+);
+const grantId = manage.clients[0]?.id;
+assert(grantId !== undefined, "Manage API did not show the OAuth grant");
+const revokeResponse = await fetch(`${base}/api/app/grants`, {
+  method: "DELETE",
+  headers: {
+    cookie: webCookie,
+    "content-type": "application/json",
+    origin: new URL(base).origin
+  },
+  body: JSON.stringify({ grantId })
+});
+assert(revokeResponse.ok, `grant revocation failed (${revokeResponse.status})`);
 
 console.log(`local OAuth + MCP + owner web smoke test passed (${toolNames.length} tools)`);

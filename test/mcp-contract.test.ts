@@ -16,8 +16,16 @@ describe("MCP structured output contracts", () => {
 
   it("defines an output object schema for every V1 tool", () => {
     expect(Object.keys(MCP_OUTPUT_SCHEMAS).sort()).toEqual([
-      "get", "history", "index", "ingest", "link", "lint", "orient", "recall",
-      "restore_apply", "restore_preview"
+      "get",
+      "history",
+      "index",
+      "ingest",
+      "link",
+      "lint",
+      "orient",
+      "recall",
+      "restore_apply",
+      "restore_preview"
     ]);
     for (const shape of Object.values(MCP_OUTPUT_SCHEMAS)) {
       expect(schema(shape).def.type).toBe("object");

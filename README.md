@@ -7,7 +7,8 @@ search from the web.
 
 The first usable vertical slice is implemented: local D1 emulation, remote HTTP
 MCP with OAuth/PKCE, passkey production identity, append-only revision storage,
-secret rejection, web browse/search/history, owner restore/purge/session controls,
+secret rejection, a React browse/search/history UI, owner restore/purge/session and
+multi-passkey controls,
 sanitized exports, and client skills. See
 [installation](docs/installation.md) to run it locally or deploy it.
 
@@ -49,7 +50,7 @@ Do not store credentials or material you are unwilling to entrust to the host.
 ## V1 boundaries
 
 V1 is a personal, bring-your-own-Cloudflare deployment with one workspace and
-passkey owner authentication. It includes a read-oriented web application with explicit
+passkey owner authentication. It includes a React web application with explicit
 owner administration, remote MCP,
 local emulation, portable export, agent skills, and an installation skill.
 

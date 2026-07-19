@@ -49,7 +49,9 @@ describe("MemoryService", () => {
       title: "Private memory",
       body: "Unique narwhal context"
     });
-    await expect(right.service.get(right.actor, "private-memory")).rejects.toMatchObject({ code: "not_found" } satisfies Partial<DomainError>);
+    await expect(right.service.get(right.actor, "private-memory")).rejects.toMatchObject({
+      code: "not_found"
+    } satisfies Partial<DomainError>);
     await expect(right.service.recall(right.actor, "narwhal")).resolves.toEqual([]);
   });
 
@@ -123,21 +125,25 @@ describe("MemoryService", () => {
     });
 
     const document = await service.get(actor, "annual-review");
-    expect(document.metadata).toEqual(expect.arrayContaining([
-      { key: "author", value: "Example Author", cardinality: "singleton" },
-      { key: "published", value: "2026-07-18", cardinality: "singleton" },
-      { key: "tag", value: "research", cardinality: "multi" }
-    ]));
+    expect(document.metadata).toEqual(
+      expect.arrayContaining([
+        { key: "author", value: "Example Author", cardinality: "singleton" },
+        { key: "published", value: "2026-07-18", cardinality: "singleton" },
+        { key: "tag", value: "research", cardinality: "multi" }
+      ])
+    );
     await expect(service.recallBySourceUrl(actor, sourceUrl)).resolves.toEqual([
       expect.objectContaining({ slug: "annual-review", revisionId: created.revisionId })
     ]);
-    await expect(service.ingest(actor, {
-      operationId: "source-metadata-invalid-switch",
-      reason: "try invalid cardinality switch",
-      slug: "annual-review",
-      expectedRevisionId: created.revisionId,
-      metadata: { multi: { author: { add: ["Another Author"] } } }
-    })).rejects.toMatchObject({ code: "validation_failed" } satisfies Partial<DomainError>);
+    await expect(
+      service.ingest(actor, {
+        operationId: "source-metadata-invalid-switch",
+        reason: "try invalid cardinality switch",
+        slug: "annual-review",
+        expectedRevisionId: created.revisionId,
+        metadata: { multi: { author: { add: ["Another Author"] } } }
+      })
+    ).rejects.toMatchObject({ code: "validation_failed" } satisfies Partial<DomainError>);
   });
 
   it("carries snapshots forward and rejects stale expected revisions", async () => {
@@ -162,7 +168,11 @@ describe("MemoryService", () => {
     expect(second.revisionNumber).toBe(2);
     const current = await service.get(actor, "project-one");
     expect(current.body).toBe("Initial state");
-    expect(current.metadata).toContainEqual({ key: "status", value: "done", cardinality: "singleton" });
+    expect(current.metadata).toContainEqual({
+      key: "status",
+      value: "done",
+      cardinality: "singleton"
+    });
 
     await expect(
       service.ingest(actor, {
@@ -264,14 +274,18 @@ describe("MemoryService", () => {
       body: "Original"
     });
     await expect(
-      testEnv.DB.prepare("UPDATE revisions SET body = 'changed' WHERE id = ?").bind(created.revisionId).run()
+      testEnv.DB.prepare("UPDATE revisions SET body = 'changed' WHERE id = ?")
+        .bind(created.revisionId)
+        .run()
     ).rejects.toThrow("revisions are immutable");
-    await expect(testEnv.DB.prepare("DELETE FROM audit_events WHERE revision_id = ?").bind(created.revisionId).run()).rejects.toThrow(
-      "audit events are append-only"
-    );
-    await expect(testEnv.DB.prepare("DELETE FROM revisions WHERE id = ?").bind(created.revisionId).run()).rejects.toThrow(
-      "revision deletion requires purge authorization"
-    );
+    await expect(
+      testEnv.DB.prepare("DELETE FROM audit_events WHERE revision_id = ?")
+        .bind(created.revisionId)
+        .run()
+    ).rejects.toThrow("audit events are append-only");
+    await expect(
+      testEnv.DB.prepare("DELETE FROM revisions WHERE id = ?").bind(created.revisionId).run()
+    ).rejects.toThrow("revision deletion requires purge authorization");
   });
 
   it("indexes current pages, returns revision headers, and classifies lint findings", async () => {
@@ -293,12 +307,18 @@ describe("MemoryService", () => {
     });
 
     const index = await service.index(actor);
-    expect(index).toContainEqual(expect.objectContaining({ slug: "catalog-page", revisionNumber: 2 }));
+    expect(index).toContainEqual(
+      expect.objectContaining({ slug: "catalog-page", revisionNumber: 2 })
+    );
     const history = await service.history(actor, "catalog-page");
     expect(history.map(({ revisionNumber }) => revisionNumber)).toEqual([2, 1]);
     const lint = await service.lint(actor);
-    expect(lint).toContainEqual(expect.objectContaining({ kind: "unresolved_reference", slug: "catalog-page" }));
-    expect(lint).toContainEqual(expect.objectContaining({ kind: "missing_summary", slug: "catalog-page" }));
+    expect(lint).toContainEqual(
+      expect.objectContaining({ kind: "unresolved_reference", slug: "catalog-page" })
+    );
+    expect(lint).toContainEqual(
+      expect.objectContaining({ kind: "missing_summary", slug: "catalog-page" })
+    );
   });
 
   it("restores by appending a compensating revision", async () => {
@@ -331,7 +351,11 @@ describe("MemoryService", () => {
     const current = await service.get(actor, "restorable");
     expect(current.body).toBe("First body");
     expect(current.restoredFromRevisionId).toBe(first.revisionId);
-    expect(current.metadata).toContainEqual({ key: "status", value: "active", cardinality: "singleton" });
+    expect(current.metadata).toContainEqual({
+      key: "status",
+      value: "active",
+      cardinality: "singleton"
+    });
   });
 
   it("purges content while preserving replay tombstones and sanitized audit", async () => {
@@ -351,9 +375,15 @@ describe("MemoryService", () => {
       reauthenticatedAt: new Date().toISOString()
     };
     const authorization = await service.authorizePurge(owner, "disposable", "disposable");
-    await expect(service.purge(owner, authorization.id, "disposable")).resolves.toEqual({ purgedRevisions: 1 });
-    await expect(service.get(actor, "disposable")).rejects.toMatchObject({ code: "not_found" } satisfies Partial<DomainError>);
-    await expect(service.ingest(actor, createRequest)).rejects.toMatchObject({ code: "gone" } satisfies Partial<DomainError>);
+    await expect(service.purge(owner, authorization.id, "disposable")).resolves.toEqual({
+      purgedRevisions: 1
+    });
+    await expect(service.get(actor, "disposable")).rejects.toMatchObject({
+      code: "not_found"
+    } satisfies Partial<DomainError>);
+    await expect(service.ingest(actor, createRequest)).rejects.toMatchObject({
+      code: "gone"
+    } satisfies Partial<DomainError>);
     const tombstone = await testEnv.DB.prepare(
       "SELECT status, result_document_id FROM operations WHERE workspace_id = ? AND operation_id = ?"
     )
@@ -394,24 +424,41 @@ describe("MemoryService", () => {
       title: "Purged export",
       body: "This must not remain in the archive"
     });
-    const owner: OwnerContext = { ...actor, role: "owner", reauthenticatedAt: new Date().toISOString() };
+    const owner: OwnerContext = {
+      ...actor,
+      role: "owner",
+      reauthenticatedAt: new Date().toISOString()
+    };
     const authorization = await service.authorizePurge(owner, "purged-export", "purged-export");
     await service.purge(owner, authorization.id, "purged-export");
     await testEnv.DB.prepare(`INSERT INTO audit_events(id, workspace_id, kind, created_at, principal_id, client_id, request_id, detail_json)
       VALUES (?, ?, 'future-kind', ?, ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), actor.workspaceId, new Date().toISOString(), actor.principalId, actor.clientId, crypto.randomUUID(), JSON.stringify({ unexpected: "do-not-export-this-detail" }))
+      .bind(
+        crypto.randomUUID(),
+        actor.workspaceId,
+        new Date().toISOString(),
+        actor.principalId,
+        actor.clientId,
+        crypto.randomUUID(),
+        JSON.stringify({ unexpected: "do-not-export-this-detail" })
+      )
       .run();
 
     const exporter = new ExportService(testEnv.DB);
     const jsonl = await exporter.jsonl(actor);
-    const records = jsonl.trim().split("\n").map((line) => {
-      const parsed: unknown = JSON.parse(line);
-      if (!isRecord(parsed)) throw new Error("Export line is not a JSON object");
-      return parsed;
-    });
+    const records = jsonl
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const parsed: unknown = JSON.parse(line);
+        if (!isRecord(parsed)) throw new Error("Export line is not a JSON object");
+        return parsed;
+      });
     expect(records[0]).toMatchObject({ record: "manifest", schemaVersion: 1 });
     expect(records.filter((record) => record["record"] === "revision")).toHaveLength(2);
-    expect(records).toContainEqual(expect.objectContaining({ record: "purge_tombstone", operationId: "export-purge" }));
+    expect(records).toContainEqual(
+      expect.objectContaining({ record: "purge_tombstone", operationId: "export-purge" })
+    );
     expect(jsonl).toContain("First historical body");
     expect(jsonl).toContain("Current exported body");
     expect(jsonl).not.toContain("This must not remain in the archive");

@@ -19,8 +19,11 @@ npm run dev             # migrate/seed local D1, start Worker and web app
 npm test                # domain + Workers/D1 integration tests
 npm run smoke:local     # OAuth/PKCE, MCP, export, restore, purge, and revoke smoke
 npm run test:passkey    # real WebAuthn registration/login using Chrome virtual authenticator
+npm run format          # apply Biome formatting and import organization
+npm run format:check    # fail on formatting or import-order drift
 npm run typecheck
 npm run lint
+npm run check           # typecheck + Biome/ESLint + all automated tests
 ```
 
 `dev:reset`, a standalone full MCP contract suite, and automated browser E2E are
@@ -33,8 +36,9 @@ removal. They never accept a broad directory or unresolved environment variable.
 
 ## Local identity
 
-The current local page offers a fixed fake owner. Reader and denied-identity fixtures
-remain planned for authorization coverage. Selecting the owner completes the upstream identity step. Wikimemory's own consent, authorization
+The React local authorization page offers a fixed fake owner. Reader and
+denied-identity fixtures remain planned for authorization coverage. Selecting the
+owner completes the upstream identity step. Wikimemory's own consent, authorization
 code, PKCE, access/refresh token, scope, resource audience, and revocation behavior
 remain real.
 

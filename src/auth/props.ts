@@ -20,7 +20,9 @@ export function actorFromMcp(): ActorContext {
     typeof props["principalId"] !== "string" ||
     typeof props["clientId"] !== "string" ||
     !Array.isArray(props["scopes"]) ||
-    !props["scopes"].every((scope): scope is MemoryScope => typeof scope === "string" && isMemoryScope(scope))
+    !props["scopes"].every(
+      (scope): scope is MemoryScope => typeof scope === "string" && isMemoryScope(scope)
+    )
   ) {
     throw new DomainError("forbidden", "Missing or invalid MCP authorization context");
   }

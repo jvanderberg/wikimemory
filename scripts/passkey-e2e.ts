@@ -57,11 +57,37 @@ async function waitUntilReady(): Promise<void> {
 
 async function main(): Promise<void> {
   const persistence = await mkdtemp(join(tmpdir(), "wikimemory-passkey-e2e-"));
-  if (!persistence.startsWith(`${tmpdir()}/wikimemory-passkey-e2e-`)) throw new Error("Unexpected persistence path");
+  if (!persistence.startsWith(`${tmpdir()}/wikimemory-passkey-e2e-`))
+    throw new Error("Unexpected persistence path");
   let worker: ReturnType<typeof spawn> | null = null;
   try {
-    await command(["wrangler", "d1", "migrations", "apply", "wikimemory-passkey-test", "--local", "--persist-to", persistence, "--config", CONFIG]);
-    worker = spawn("npx", ["wrangler", "dev", "--port", "8792", "--persist-to", persistence, "--config", CONFIG, "--show-interactive-dev-session=false"], { stdio: "inherit" });
+    await command([
+      "wrangler",
+      "d1",
+      "migrations",
+      "apply",
+      "wikimemory-passkey-test",
+      "--local",
+      "--persist-to",
+      persistence,
+      "--config",
+      CONFIG
+    ]);
+    worker = spawn(
+      "npx",
+      [
+        "wrangler",
+        "dev",
+        "--port",
+        "8792",
+        "--persist-to",
+        persistence,
+        "--config",
+        CONFIG,
+        "--show-interactive-dev-session=false"
+      ],
+      { stdio: "inherit" }
+    );
     await waitUntilReady();
     const browser = await chromium.launch({ executablePath: await chromePath(), headless: true });
     try {

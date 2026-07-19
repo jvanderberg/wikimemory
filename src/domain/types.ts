@@ -1,7 +1,19 @@
-export const DOCUMENT_TYPES: readonly ["system", "project", "topic", "source", "note"] = ["system", "project", "topic", "source", "note"];
+export const DOCUMENT_TYPES: readonly ["system", "project", "topic", "source", "note"] = [
+  "system",
+  "project",
+  "topic",
+  "source",
+  "note"
+];
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
-export const LINK_KINDS: readonly ["related", "part_of", "supersedes", "cites", "contradicts"] = ["related", "part_of", "supersedes", "cites", "contradicts"];
+export const LINK_KINDS: readonly ["related", "part_of", "supersedes", "cites", "contradicts"] = [
+  "related",
+  "part_of",
+  "supersedes",
+  "cites",
+  "contradicts"
+];
 export type LinkKind = (typeof LINK_KINDS)[number];
 
 export type MemoryScope = "memory:read" | "memory:write" | "memory:admin";
@@ -17,10 +29,7 @@ export interface ActorContext {
 
 export interface MetadataPatch {
   set?: Record<string, string | null>;
-  multi?: Record<
-    string,
-    { replace?: string[]; add?: string[]; remove?: string[] }
-  >;
+  multi?: Record<string, { replace?: string[]; add?: string[]; remove?: string[] }>;
 }
 
 export interface LinkValue {
