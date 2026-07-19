@@ -209,7 +209,7 @@ await describe("guided installer", async () => {
         return Promise.resolve(
           attempts === 1
             ? new Response("starting", { status: 500 })
-            : Response.json({ status: "ok", service: "wikimemory", version: "0.2.2" })
+            : Response.json({ status: "ok", service: "wikimemory", version: "0.2.3" })
         );
       },
       (milliseconds) => {

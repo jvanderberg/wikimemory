@@ -1,8 +1,14 @@
 {
   "name": "wikimemory",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Personal, passkey-protected memory for Claude, Codex, and other MCP clients",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jvanderberg/wikimemory.git"
+  },
+  "homepage": "https://github.com/jvanderberg/wikimemory#readme",
+  "bugs": "https://github.com/jvanderberg/wikimemory/issues",
   "keywords": [
     "mcp",
     "memory",
