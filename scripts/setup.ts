@@ -234,10 +234,22 @@ export function initialConfig(options: Options, account: Account): string {
 }
 
 export function withWebAssets(config: string): string {
-  const parsed = z.record(z.string(), z.unknown()).parse(JSON.parse(config));
+  const parsed = z
+    .looseObject({
+      d1_databases: z.array(z.looseObject({ binding: z.string() })).optional()
+    })
+    .parse(JSON.parse(config));
+  const databases = parsed.d1_databases?.map((database) =>
+    database.binding === "DB"
+      ? { ...database, migrations_dir: join(PACKAGE_ROOT, "migrations") }
+      : database
+  );
   return `${JSON.stringify(
     {
       ...parsed,
+      $schema: join(PACKAGE_ROOT, "node_modules", "wrangler", "config-schema.json"),
+      main: join(PACKAGE_ROOT, "src", "index.ts"),
+      ...(databases === undefined ? {} : { d1_databases: databases }),
       assets: {
         directory: join(PACKAGE_ROOT, "dist", "web"),
         binding: "ASSETS",
@@ -420,7 +432,11 @@ export async function verifyEndpoint(
       const body = await response.text();
       if (response.ok) {
         const decoded = z
-          .object({ status: z.literal(expectedStatus), service: z.literal("wikimemory") })
+          .object({
+            status: z.literal(expectedStatus),
+            service: z.literal("wikimemory"),
+            version: z.literal(WIKIMEMORY_VERSION)
+          })
           .safeParse(JSON.parse(body));
         if (decoded.success) return;
         finalDetail = `HTTP ${response.status}: unexpected response ${body.slice(0, 300)}`;

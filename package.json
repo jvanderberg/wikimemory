@@ -1,6 +1,6 @@
 {
   "name": "wikimemory",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Personal, passkey-protected memory for Claude, Codex, and other MCP clients",
   "license": "MIT",
   "keywords": [

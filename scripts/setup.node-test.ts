@@ -76,13 +76,22 @@ await describe("guided installer", async () => {
 
   await it("upgrades resumable production configs with the React asset binding", () => {
     const config = withWebAssets(
-      '{"name":"wikimemory","main":"src/index.ts","vars":{"APP_BASE_URL":"https://memory.example"}}\n'
+      '{"$schema":"/old/config-schema.json","name":"wikimemory","main":"/old/src/index.ts","vars":{"APP_BASE_URL":"https://memory.example"},"d1_databases":[{"binding":"DB","database_name":"memory","database_id":"db-id","migrations_dir":"/old/migrations"}]}\n'
     );
     const parsed: unknown = JSON.parse(config);
     assert.deepEqual(parsed, {
+      $schema: "node_modules/wrangler/config-schema.json",
       name: "wikimemory",
       main: "src/index.ts",
       vars: { APP_BASE_URL: "https://memory.example" },
+      d1_databases: [
+        {
+          binding: "DB",
+          database_name: "memory",
+          database_id: "db-id",
+          migrations_dir: "migrations"
+        }
+      ],
       assets: {
         directory: "dist/web",
         binding: "ASSETS",
@@ -200,7 +209,7 @@ await describe("guided installer", async () => {
         return Promise.resolve(
           attempts === 1
             ? new Response("starting", { status: 500 })
-            : Response.json({ status: "ok", service: "wikimemory" })
+            : Response.json({ status: "ok", service: "wikimemory", version: "0.2.2" })
         );
       },
       (milliseconds) => {
@@ -242,6 +251,18 @@ await describe("guided installer", async () => {
         1
       ),
       /network offline/u
+    );
+    await assert.rejects(
+      verifyEndpoint(
+        "https://memory.example",
+        "/health",
+        "ok",
+        () =>
+          Promise.resolve(Response.json({ status: "ok", service: "wikimemory", version: "0.2.0" })),
+        () => Promise.resolve(),
+        1
+      ),
+      /unexpected response/u
     );
   });
 
