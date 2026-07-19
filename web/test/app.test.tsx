@@ -309,7 +309,7 @@ test("revokes a passkey from a multi-credential management view", async () => {
     if (url.pathname === "/api/app/session") return response(session("production"));
     if (url.pathname === "/api/app/passkeys") {
       revoked = true;
-      return response({ revoked: "a".repeat(64) });
+      return response({ revoked: "a".repeat(64), sessionCleanupComplete: false });
     }
     if (url.pathname === "/api/app/manage")
       return response({
@@ -361,7 +361,9 @@ test("revokes a passkey from a multi-credential management view", async () => {
   const revoke = page.getByRole("button", { name: "Revoke" }).first();
   await expect.element(revoke).toBeEnabled();
   await revoke.click();
-  await expect.element(page.getByText("Passkey revoked.")).toBeVisible();
+  await expect
+    .element(page.getByText(/Passkey revoked\. Browser-session cleanup could not be confirmed/u))
+    .toBeVisible();
   await expect.element(page.getByText("Old laptop")).not.toBeInTheDocument();
 });
 

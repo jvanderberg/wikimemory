@@ -131,6 +131,12 @@ type RegistrationVerifier = (
 type AuthenticationVerifier = (
   options: Parameters<typeof verifyAuthenticationResponse>[0]
 ) => Promise<VerifiedAuthenticationResponse>;
+type RecoveryStateRevoker = (env: Env) => Promise<void>;
+
+async function revokeRecoveryState(env: Env): Promise<void> {
+  await revokeAllUserGrants(env);
+  await revokeAllProductionWebSessions(env);
+}
 
 function relyingParty(env: RelyingPartyEnv): { origin: string; rpID: string } {
   if (env.APP_BASE_URL === undefined) throw new Error("APP_BASE_URL is required");
@@ -358,7 +364,8 @@ export async function setupOptions(request: Request, env: RegistrationEnv): Prom
 export async function setupVerify(
   request: Request,
   env: Env,
-  verify: RegistrationVerifier = verifyRegistrationResponse
+  verify: RegistrationVerifier = verifyRegistrationResponse,
+  revokeState: RecoveryStateRevoker = revokeRecoveryState
 ): Promise<Response> {
   const body = SETUP_VERIFY_SCHEMA.parse(await request.json());
   const flow = await consumeChallenge(env, body.flowId, "setup");
@@ -398,8 +405,7 @@ export async function setupVerify(
   const credential = verification.registrationInfo.credential;
   try {
     if (payload.mode === "recovery") {
-      await revokeAllUserGrants(env);
-      await revokeAllProductionWebSessions(env);
+      await revokeState(env);
     }
     const insert = env.DB.prepare(`INSERT INTO passkey_credentials
         (credential_id, principal_id, public_key, counter, transports_json, device_type, backed_up, created_at, label)
@@ -417,6 +423,9 @@ export async function setupVerify(
     await env.DB.batch(
       payload.mode === "recovery"
         ? [
+            env.DB.prepare("DELETE FROM passkey_registration_tokens WHERE principal_id = ?").bind(
+              PRINCIPAL_ID
+            ),
             insert,
             env.DB.prepare(
               "DELETE FROM passkey_credentials WHERE principal_id = ? AND credential_id <> ?"
@@ -498,8 +507,10 @@ export async function registrationVerify(
       { status: 410 }
     );
   const payload = REGISTRATION_PAYLOAD_SCHEMA.parse(JSON.parse(flow.payload_json ?? "null"));
-  const token = await env.DB.prepare(`SELECT 1 AS present FROM passkey_registration_tokens
-    WHERE token_hash = ? AND principal_id = ? AND expires_at > ?`)
+  const token = await env.DB.prepare(`SELECT 1 AS present FROM passkey_registration_tokens t
+    JOIN passkey_credentials c
+      ON c.credential_id = t.authorizing_credential_id AND c.principal_id = t.principal_id
+    WHERE t.token_hash = ? AND t.principal_id = ? AND t.expires_at > ?`)
     .bind(flow.token_hash, PRINCIPAL_ID, new Date().toISOString())
     .first<{ present: number }>();
   if (token === null)
@@ -524,7 +535,10 @@ export async function registrationVerify(
     env.DB.prepare(`INSERT INTO passkey_credentials
       (credential_id, principal_id, public_key, counter, transports_json, device_type, backed_up, created_at, label)
       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (
-        SELECT 1 FROM passkey_registration_tokens WHERE token_hash = ? AND principal_id = ? AND expires_at > ?
+        SELECT 1 FROM passkey_registration_tokens t
+        JOIN passkey_credentials c
+          ON c.credential_id = t.authorizing_credential_id AND c.principal_id = t.principal_id
+        WHERE t.token_hash = ? AND t.principal_id = ? AND t.expires_at > ?
       )`).bind(
       credential.id,
       PRINCIPAL_ID,
@@ -696,7 +710,9 @@ export async function verifyPasskeyAuthorization(
         workspaceId: WORKSPACE_ID,
         principalId: PRINCIPAL_ID,
         clientId: auth.clientId,
-        scopes: granted
+        scopes: granted,
+        authenticatedAt,
+        credentialId: row.credential_id
       }
     });
     return Response.json({ redirectTo });
@@ -716,7 +732,7 @@ export async function verifyPasskeyAuthorization(
     { redirectTo: "/app" },
     {
       headers: {
-        "set-cookie": `wm_web_session=${sessionId}; HttpOnly; Secure; Path=/app; SameSite=Lax; Max-Age=86400`
+        "set-cookie": `wm_web_session=${sessionId}; HttpOnly; Secure; Path=/; SameSite=Lax; Max-Age=86400`
       }
     }
   );
@@ -742,7 +758,7 @@ export async function productionWebOwner(request: Request, env: Env): Promise<Ow
     .object({
       principalId: z.string(),
       workspaceId: z.string(),
-      credentialId: z.string().optional(),
+      credentialId: z.string(),
       authenticatedAt: z.string(),
       createdAt: z.string()
     })
@@ -753,7 +769,18 @@ export async function productionWebOwner(request: Request, env: Env): Promise<Ow
     parsed.data.workspaceId !== WORKSPACE_ID
   )
     return null;
-  return { ...actor(), role: "owner", reauthenticatedAt: parsed.data.authenticatedAt };
+  const credential = await env.DB.prepare(
+    "SELECT 1 AS present FROM passkey_credentials WHERE credential_id = ? AND principal_id = ?"
+  )
+    .bind(parsed.data.credentialId, PRINCIPAL_ID)
+    .first<{ present: number }>();
+  if (credential === null) return null;
+  return {
+    ...actor(),
+    role: "owner",
+    reauthenticatedAt: parsed.data.authenticatedAt,
+    credentialId: parsed.data.credentialId
+  };
 }
 
 export async function endProductionWebSession(request: Request, env: Env): Promise<void> {
@@ -836,6 +863,19 @@ export async function revokeProductionSessionsForCredential(
     );
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor !== undefined);
+}
+
+export async function revokeProductionSessionsForCredentialBestEffort(
+  env: Env,
+  principalId: string,
+  credentialId: string
+): Promise<boolean> {
+  try {
+    await revokeProductionSessionsForCredential(env, principalId, credentialId);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function revokeAllUserGrants(env: Pick<Env, "OAUTH_PROVIDER">): Promise<void> {

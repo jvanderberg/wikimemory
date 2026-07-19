@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "schemaVersion": "0004_credential_bound_registration_tokens.sql",
+  "migrations": [
+    {
+      "name": "0001_initial.sql",
+      "sha256": "8ba68fc43c522161f271f9c77334b9be8fcf067e20f6ee292791fdfdf040f791"
+    },
+    {
+      "name": "0002_passkeys.sql",
+      "sha256": "46684eae4e14cf663d9a21ce22ebc04767d8554b7505cda376b4a06115fdaa01"
+    },
+    {
+      "name": "0003_passkey_management.sql",
+      "sha256": "8566fd2ed72f4956e7b215778e822aa2349fbaefa44f596e1b1fed9f4b6603fc"
+    },
+    {
+      "name": "0004_credential_bound_registration_tokens.sql",
+      "sha256": "fb263e95019513b8e00b55da675af5a42bd0715214ef1855dc7e5ba8b8bf55f3"
+    }
+  ]
+}

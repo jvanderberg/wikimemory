@@ -20,6 +20,13 @@ V1 uses Cloudflare-managed encryption at rest and TLS in transit. It is not end-
 encrypted against the infrastructure provider. This limitation must be explicit in
 the README and installation flow.
 
+Cloudflare encrypts the hosted D1 database and KV namespace at rest with
+provider-managed keys. Wikimemory does not add application-layer encryption to
+document bodies, metadata, relationships, local Miniflare databases, or exported
+archives. Anyone with sufficient Cloudflare account/provider access—or access to a
+local database or export—can read that content. Client-side, owner-held-key encryption
+would be a separate design with substantial search and recovery tradeoffs.
+
 ## Primary threats and controls
 
 ### Unauthorized access
@@ -150,6 +157,10 @@ provider emits and tests the equivalent timestamp.
   session.
 - Normal passkey registration is separate from recovery. It requires a passkey
   authentication completed within five minutes and preserves existing credentials.
+  Its one-use capability is bound to the credential that authorized it: issuance
+  atomically requires that credential, revocation removes its outstanding
+  capabilities, and registration completion rechecks the relationship. Recovery
+  invalidates every outstanding add-passkey capability while replacing credentials.
 - Listing exposes a SHA-256 credential reference rather than the raw WebAuthn
   credential ID. Individual revocation also removes browser sessions established by
   that credential. Both service logic and a D1 trigger forbid revoking the final

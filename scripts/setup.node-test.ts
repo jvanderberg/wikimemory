@@ -17,7 +17,12 @@ import {
   withWebAssets,
   workersDevRegistrationRequired
 } from "./setup.ts";
-import { parseUninstallOptions, resolveUninstallTargets, runUninstall } from "./uninstall.ts";
+import {
+  clientRemovalInstructions,
+  parseUninstallOptions,
+  resolveUninstallTargets,
+  runUninstall
+} from "./uninstall.ts";
 
 const productionConfig = `${JSON.stringify({
   name: "my-memory",
@@ -75,7 +80,7 @@ await describe("guided installer", async () => {
       main: "src/index.ts",
       vars: { APP_BASE_URL: "https://memory.example" },
       assets: {
-        directory: "./dist/web",
+        directory: "dist/web",
         binding: "ASSETS",
         not_found_handling: "single-page-application"
       }
@@ -158,6 +163,15 @@ await describe("guided installer", async () => {
     assert.throws(() => parseUninstallOptions(["--confirm", "my-memory"]));
   });
 
+  await it("explains how to remove every supported client registration", () => {
+    const instructions = clientRemovalInstructions();
+    assert.match(instructions, /codex mcp logout wikimemory/u);
+    assert.match(instructions, /codex mcp remove wikimemory/u);
+    assert.match(instructions, /claude mcp logout wikimemory/u);
+    assert.match(instructions, /claude mcp remove --scope user wikimemory/u);
+    assert.match(instructions, /Settings > Connectors/u);
+  });
+
   await it("resolves uninstall targets only from recorded bindings", () => {
     const config = `{"name":"my-memory","account_id":"account","d1_databases":[{"binding":"DB","database_name":"db","database_id":"db-id"}],"kv_namespaces":[{"binding":"OAUTH_KV","id":"kv-id"}]}`;
     assert.deepEqual(resolveUninstallTargets(config), {
@@ -212,7 +226,7 @@ await describe("guided installer", async () => {
           ["wrangler", "deployments", "list", "--name"],
           ["wrangler", "delete", "my-memory", "--force"],
           ["wrangler", "kv", "namespace", "delete"],
-          ["wrangler", "d1", "delete", "db"]
+          ["wrangler", "d1", "delete", "db-id"]
         ]
       );
       await assert.rejects(access("wrangler.production.jsonc"));

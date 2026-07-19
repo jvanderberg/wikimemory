@@ -5,7 +5,37 @@ development needs no cloud account. Production needs Node.js 22+, npm, a
 Cloudflare account, and a device or password manager that supports passkeys. It
 does not need a Google Cloud project or OAuth application.
 
+## Packaged command line
+
+The npm package provides the complete lifecycle without a source checkout:
+
+```sh
+npx wikimemory install
+npx wikimemory status
+npx wikimemory upgrade
+npx wikimemory passkeys list
+npx wikimemory connect codex
+npx wikimemory skills install codex
+npx wikimemory uninstall
+```
+
+Each installation stores non-secret lifecycle state under
+`~/.config/wikimemory/deployments/NAME/`. Use `--deployment NAME` consistently for
+parallel installations. Worker source, React assets, migrations, and skills come
+from the exact npm release, not the current directory.
+
 ## Run locally
+
+Without a checkout:
+
+```sh
+npx wikimemory dev
+```
+
+This retains local state under `./.wikimemory/dev/`. Extra arguments are passed to
+Wrangler, for example `npx wikimemory dev --port 8790`.
+
+From a checkout:
 
 ```sh
 npm ci
@@ -35,7 +65,13 @@ First authenticate Wrangler:
 npx wrangler login
 ```
 
-Then run the installer from a clean checkout:
+Deploy from any directory with:
+
+```sh
+npx wikimemory install
+```
+
+From a clean checkout, the maintainer equivalent is:
 
 ```sh
 npm ci
@@ -51,8 +87,10 @@ the exact Worker, D1, and KV names and asks for confirmation. It then:
 4. creates and binds D1 and KV, then applies the remote migrations;
 5. generates a random one-time setup value, stores only its SHA-256 hash as a
    Cloudflare Worker secret, and redeploys with the canonical origin;
-6. verifies both `/health` and the D1-backed `/ready` check; and
-7. prints the one-time passkey setup URL and client commands.
+6. verifies both `/health` and the D1-backed `/ready` check;
+7. writes a non-secret deployment record under
+   `~/.config/wikimemory/deployments/` for checkout-free upgrades; and
+8. prints the one-time passkey setup URL and client commands.
 
 On a Cloudflare account that has never deployed a Worker, Cloudflare first requires
 an account-wide `workers.dev` subdomain. The installer detects that condition before
@@ -93,35 +131,56 @@ remote resources, and all uploads use Wrangler strict mode.
 reviewed the displayed defaults. The installer does not delete or replace an
 existing production configuration.
 
-## Planned packaged upgrades
+## Packaged upgrades
 
-The target upgrade experience is:
+Upgrade without a source checkout:
 
 ```sh
 npx wikimemory upgrade
 ```
 
-This command is not published yet. It should work without a source checkout: load
-the existing deployment record, show the exact Cloudflare account and Worker/D1/KV
-targets plus current and target versions, require confirmation, apply the release's
-bundled migrations, deploy its bundled Worker and React assets, and verify health,
-readiness, OAuth discovery, and schema version. It must refuse resource-ID or account
-mismatches and must never rotate the setup secret, replace passkeys, seed fixtures,
-or delete memory during an ordinary upgrade.
+The command loads the deployment record written by setup, verifies the authenticated
+Cloudflare account and immutable Worker/D1/KV targets, and compares both the running
+application version and the D1 migration history with the packaged release manifest.
+It shows the exact targets, version transition, and pending migrations before asking
+for confirmation. It then applies only the missing ordered migration suffix, deploys
+the package's Worker and compiled React assets, and verifies health, readiness, OAuth
+discovery, application version, schema version, and the React shell.
 
-Until that package exists, maintainers perform the same sequence from a clean,
-verified checkout:
+Every bundled migration has a SHA-256 checksum verified during packaging and again
+before an upgrade touches Cloudflare. Upgrade refuses modified release files,
+unknown or reordered migration history, a newer installed schema, application
+downgrades, account mismatches, and resource-ID/name mismatches. It never rotates the
+setup secret, replaces passkeys, seeds fixtures, or deletes memory.
+
+Custom or parallel installations use the Worker name as the deployment-record name:
 
 ```sh
-npm run build:web
-npm run db:migrate:production
-npx wrangler deploy --strict --config wrangler.production.jsonc
+npx wikimemory upgrade --deployment my-memory
 ```
+
+For testing an explicit record without changing the default, use
+`--record /absolute/path/to/record.json`. `--yes` accepts the displayed plan for
+noninteractive release automation.
+
+The identical maintainer command from this checkout is:
+
+```sh
+npm run upgrade
+```
+
+Use `npx wikimemory status` to verify the recorded and running application versions,
+schema version, OAuth discovery, and React shell.
 
 ## Passkey recovery
 
-Cloudflare account control is the recovery authority. From the original checkout
-with its ignored `wrangler.production.jsonc`, rotate the one-time setup secret:
+Cloudflare account control is the recovery authority. The packaged command is:
+
+```sh
+npx wikimemory recover
+```
+
+From the original checkout, the equivalent command is:
 
 ```sh
 npm run setup -- --recover
@@ -148,9 +207,15 @@ npm run passkeys -- add --name "Phone"
 npm run passkeys -- revoke CREDENTIAL_REF
 ```
 
-The add command opens an expiring one-use registration page. Revoking a credential
-also revokes browser sessions created with it. Use `setup -- --recover` only when no
-remaining passkey is available or all existing credentials should be replaced.
+The checkout-free equivalents are `npx wikimemory passkeys list`,
+`npx wikimemory passkeys add --name "Phone"`, and
+`npx wikimemory passkeys revoke CREDENTIAL_REF`.
+
+The add command opens an expiring one-use registration page bound to the passkey that
+authorized it. Revoking that credential invalidates its unused registration links
+and blocks its browser sessions; recovery invalidates every outstanding registration
+link. Use `setup -- --recover` only when no remaining passkey is available or all
+existing credentials should be replaced.
 
 ## Uninstall a test deployment
 
@@ -159,6 +224,9 @@ Preview the exact resources recorded in the ignored production config:
 ```sh
 npm run uninstall
 ```
+
+Without a checkout, use `npx wikimemory uninstall`. It reads the same exact targets
+from the per-deployment state directory.
 
 Preview mode does not call any deletion command. To remove the deployment, run:
 
@@ -178,6 +246,22 @@ A partial installation where the Worker was never deployed is treated as an
 already-complete Worker deletion, allowing its recorded KV and D1 cleanup to
 continue.
 
+Cloud resource deletion cannot remove MCP registrations stored by clients or hosted
+services. The uninstall preview and completion output therefore print the separate
+client cleanup commands:
+
+```sh
+codex mcp logout wikimemory
+codex mcp remove wikimemory
+
+claude mcp logout wikimemory
+claude mcp remove --scope user wikimemory
+```
+
+For Claude web and mobile, remove the custom connector separately from
+**Settings > Connectors**. Repeat client cleanup on every machine or hosted client
+where Wikimemory was registered.
+
 ## Connect Codex CLI
 
 Use the exact HTTPS MCP endpoint printed by the installer:
@@ -191,6 +275,8 @@ Approve the MCP client in the browser with the owner passkey. Normal agent
 connections request read/write scopes; use an administrative connection only when
 restore tools are needed.
 
+The packaged shortcut is `npx wikimemory connect codex`.
+
 ## Connect Claude Code
 
 ```sh
@@ -199,6 +285,8 @@ claude mcp add --transport http --scope user wikimemory https://YOUR_WORKER_HOST
 
 Inside Claude Code, run `/mcp`, select Wikimemory, and approve with the passkey.
 Claude stores and refreshes its Wikimemory OAuth tokens.
+
+The packaged shortcut is `npx wikimemory connect claude`.
 
 ### Recover a stale connector session
 
@@ -225,7 +313,14 @@ reach a local `127.0.0.1` Worker.
 
 ## Install the agent skills
 
-Symlink the repo skills for Claude:
+Install version-matched copies from the package, then restart the client:
+
+```sh
+npx wikimemory skills install codex
+npx wikimemory skills install claude
+```
+
+From a checkout, symlink the repo skills for Claude:
 
 ```sh
 mkdir -p ~/.claude/skills

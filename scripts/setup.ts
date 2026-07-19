@@ -8,9 +8,13 @@ import process from "node:process";
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
+import { WIKIMEMORY_VERSION } from "../src/version.ts";
+import { deploymentRecordFromConfig, writeDeploymentRecord } from "./deployment-record.ts";
+import { installedRecordPath, packageRoot, setupRuntime } from "./lifecycle-runtime.ts";
 
-const CONFIG_PATH = "wrangler.production.jsonc";
-const STATE_PATH = ".wikimemory-installer.json";
+const PACKAGE_ROOT = packageRoot;
+const CONFIG_PATH = setupRuntime.config;
+const STATE_PATH = setupRuntime.progress;
 const BOOTSTRAP_ORIGIN = "https://bootstrap.invalid";
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/u;
 const WHOAMI_SCHEMA = z.discriminatedUnion("loggedIn", [
@@ -94,7 +98,7 @@ export function parseOptions(args: string[]): Options {
 }
 
 function usage(): string {
-  return "Usage: npm run setup -- [--account-id ID] [--yes] [--worker-name NAME] [--database-name NAME] [--kv-name NAME]\n       npm run setup -- --resume [--yes]\n       npm run setup -- --recover [--yes]";
+  return `Usage: ${setupRuntime.executable} [--account-id ID] [--yes] [--worker-name NAME] [--database-name NAME] [--kv-name NAME]\n       ${setupRuntime.executable} --resume [--yes]\n       ${setupRuntime.executable} --recover [--yes]`;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -157,14 +161,14 @@ async function runInteractive(command: string, args: string[]): Promise<void> {
 export function initialConfig(options: Options, account: Account): string {
   return `${JSON.stringify(
     {
-      $schema: "node_modules/wrangler/config-schema.json",
+      $schema: join(PACKAGE_ROOT, "node_modules", "wrangler", "config-schema.json"),
       name: options.workerName,
       account_id: account.id,
-      main: "src/index.ts",
+      main: join(PACKAGE_ROOT, "src", "index.ts"),
       compatibility_date: "2026-07-18",
       compatibility_flags: ["nodejs_compat"],
       assets: {
-        directory: "./dist/web",
+        directory: join(PACKAGE_ROOT, "dist", "web"),
         binding: "ASSETS",
         not_found_handling: "single-page-application"
       },
@@ -181,7 +185,7 @@ export function withWebAssets(config: string): string {
     {
       ...parsed,
       assets: {
-        directory: "./dist/web",
+        directory: join(PACKAGE_ROOT, "dist", "web"),
         binding: "ASSETS",
         not_found_handling: "single-page-application"
       }
@@ -256,7 +260,7 @@ export async function applyRemoteMigrations(databaseName: string): Promise<void>
       result.results.map((row) => row.name)
     )
   );
-  const migrations = (await readdir("migrations"))
+  const migrations = (await readdir(join(PACKAGE_ROOT, "migrations")))
     .filter((name) => /^\d+.*\.sql$/u.test(name))
     .sort();
   for (const migration of migrations) {
@@ -268,7 +272,10 @@ export async function applyRemoteMigrations(databaseName: string): Promise<void>
       const bundlePath = join(temporary, migration);
       await writeFile(
         bundlePath,
-        migrationBundle(await readFile(join("migrations", migration), "utf8"), migration),
+        migrationBundle(
+          await readFile(join(PACKAGE_ROOT, "migrations", migration), "utf8"),
+          migration
+        ),
         "utf8"
       );
       await run("npx", [
@@ -443,7 +450,7 @@ async function finalizeDeployment(options: Options): Promise<void> {
   const existingConfig = await readFile(CONFIG_PATH, "utf8");
   const assetConfig = withWebAssets(existingConfig);
   if (assetConfig !== existingConfig) await writeFile(CONFIG_PATH, assetConfig, "utf8");
-  await run("npm", ["run", "build:web"]);
+  if (!setupRuntime.packaged) await run("npm", ["run", "build:web"]);
   let config = await readFile(CONFIG_PATH, "utf8");
   let origin = configuredOrigin(config);
   if (origin === null) throw new Error(`${CONFIG_PATH} has no valid APP_BASE_URL.`);
@@ -490,6 +497,15 @@ async function finalizeDeployment(options: Options): Promise<void> {
   );
   await verifyEndpoint(origin, "/health", "ok");
   await verifyEndpoint(origin, "/ready", "ready");
+  const finalConfig = await readFile(CONFIG_PATH, "utf8");
+  const deploymentRecord = deploymentRecordFromConfig(
+    finalConfig,
+    WIKIMEMORY_VERSION,
+    options.kvName
+  );
+  const recordPath = installedRecordPath(options.workerName);
+  await writeDeploymentRecord(deploymentRecord, recordPath);
+  console.log(`\nSaved deployment record: ${recordPath}`);
   console.log(`\n${handoff(origin, secret.raw)}`);
 }
 

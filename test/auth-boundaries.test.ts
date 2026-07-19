@@ -179,7 +179,7 @@ describe("passkey registration and authentication boundaries", () => {
               '2026-07-19T00:00:00Z', 'Existing passkey')`)
       .bind(PASSKEY_OWNER_ID)
       .run();
-    const token = await createRegistrationToken(env.DB, "Phone passkey");
+    const token = await createRegistrationToken(env.DB, "Phone passkey", "Y3JlZGVudGlhbA");
     const result = await registrationOptions(
       new Request(`${BASE_URL}/passkeys/add/options`, {
         method: "POST",

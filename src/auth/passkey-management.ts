@@ -82,18 +82,24 @@ export async function revokePasskey(db: D1Database, credentialRef: string): Prom
     if ((await sha256(row.credential_id)) === credentialRef) selected = row;
   }
   if (selected === undefined) throw new DomainError("not_found", "Passkey not found");
-  const result = await db
-    .prepare("DELETE FROM passkey_credentials WHERE credential_id = ? AND principal_id = ?")
-    .bind(selected.credential_id, PRINCIPAL_ID)
-    .run();
-  if (result.meta.changes !== 1)
+  const results = await db.batch([
+    db
+      .prepare(`DELETE FROM passkey_registration_tokens
+        WHERE authorizing_credential_id = ? AND principal_id = ?`)
+      .bind(selected.credential_id, PRINCIPAL_ID),
+    db
+      .prepare("DELETE FROM passkey_credentials WHERE credential_id = ? AND principal_id = ?")
+      .bind(selected.credential_id, PRINCIPAL_ID)
+  ]);
+  if (results[1]?.meta.changes !== 1)
     throw new DomainError("revision_conflict", "Passkey changed before it could be revoked");
   return selected.credential_id;
 }
 
 export async function createRegistrationToken(
   db: D1Database,
-  labelInput: string
+  labelInput: string,
+  authorizingCredentialId: string
 ): Promise<RegistrationToken> {
   const label = labelInput.trim();
   if (label.length < 1 || label.length > 80)
@@ -102,13 +108,26 @@ export async function createRegistrationToken(
   const tokenHash = await sha256(rawToken);
   const createdAt = new Date().toISOString();
   const expiresAt = new Date(Date.now() + TOKEN_TTL_SECONDS * 1000).toISOString();
-  await db.batch([
+  const results = await db.batch([
     db.prepare("DELETE FROM passkey_registration_tokens WHERE expires_at <= ?").bind(createdAt),
     db
-      .prepare(`INSERT INTO passkey_registration_tokens(token_hash, principal_id, label, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?)`)
-      .bind(tokenHash, PRINCIPAL_ID, label, expiresAt, createdAt)
+      .prepare(`INSERT INTO passkey_registration_tokens(
+        token_hash, principal_id, authorizing_credential_id, label, expires_at, created_at
+      )
+      SELECT ?, ?, credential_id, ?, ?, ? FROM passkey_credentials
+      WHERE credential_id = ? AND principal_id = ?`)
+      .bind(
+        tokenHash,
+        PRINCIPAL_ID,
+        label,
+        expiresAt,
+        createdAt,
+        authorizingCredentialId,
+        PRINCIPAL_ID
+      )
   ]);
+  if (results[1]?.meta.changes !== 1)
+    throw new DomainError("forbidden", "The authorizing passkey is no longer valid");
   return { rawToken, expiresAt };
 }
 
@@ -119,8 +138,10 @@ export async function registrationToken(
   if (rawToken.length < 32 || rawToken.length > 512) return null;
   const tokenHash = await sha256(rawToken);
   const row = await db
-    .prepare(`SELECT label FROM passkey_registration_tokens
-    WHERE token_hash = ? AND principal_id = ? AND expires_at > ?`)
+    .prepare(`SELECT t.label FROM passkey_registration_tokens t
+    JOIN passkey_credentials c
+      ON c.credential_id = t.authorizing_credential_id AND c.principal_id = t.principal_id
+    WHERE t.token_hash = ? AND t.principal_id = ? AND t.expires_at > ?`)
     .bind(tokenHash, PRINCIPAL_ID, new Date().toISOString())
     .first<{ label: string }>();
   return row === null ? null : { tokenHash, label: row.label };

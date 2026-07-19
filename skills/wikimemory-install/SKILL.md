@@ -26,7 +26,9 @@ For Claude on phone, configure the same HTTPS endpoint as a custom connector in 
 ## Deploy a new instance
 
 1. Confirm the user controls a Cloudflare account. Deployment changes external state, so show the exact target account, Worker name, D1 database name, and KV namespace before applying it.
-2. Run the repository's guided TypeScript workflow from `docs/installation.md`; do not reimplement its provisioning steps ad hoc.
+2. Run `npx wikimemory install`, or the repository's guided TypeScript workflow for
+   maintainer testing. Use `--deployment NAME` for a
+   non-default installation. Do not reimplement provisioning steps ad hoc.
 3. Stop after the installer prints the one-time URL. The human must open it and create the owner passkey; never open, copy, or retain that URL for them.
 4. After the user confirms passkey setup, verify protected-resource metadata, OAuth login, and an authenticated `orient` call.
 5. Do not enable local fixture identity in production. Never print, commit, or persist setup material outside the installer's one-time handoff and Cloudflare's secret store.
@@ -35,7 +37,8 @@ If a provisioning step fails after the config is created, rerun the documented
 `--resume` workflow. It must require the installer's successful-preflight state.
 Never work around a remote resource name collision by deploying over it.
 
-For lost-passkey recovery, use the documented `npm run setup -- --recover` workflow.
+For lost-passkey recovery, use `npx wikimemory recover` or the documented repository
+fallback.
 It rotates the bootstrap hash and prints a one-use registration URL. Existing
 credentials remain active until the replacement verifies; successful recovery then
 replaces all old credentials and revokes browser sessions and MCP grants. It must
@@ -50,20 +53,29 @@ If production deployment is marked incomplete in the installation guide, stop af
 
 ## Update an existing instance
 
-1. Require a clean, verified repository checkpoint and the ignored
-   `wrangler.production.jsonc` from the original deployment.
-2. Read the config and show the exact account, Worker, D1 database, KV namespace,
-   and origin before changing remote state.
-3. Use Wrangler read-only checks to confirm that those resources still match the
-   recorded IDs and list pending D1 migrations.
-4. Build the web assets, run `npm run db:migrate:production`, then deploy with
-   `npx wrangler deploy --strict --config wrangler.production.jsonc`.
+1. Run `npx wikimemory status` first, then use `npx wikimemory upgrade` or
+   `npm run upgrade` for maintainer testing from this repository.
+2. Let the CLI load the non-secret deployment record written by setup and show the
+   exact account, Worker, D1 database, KV namespace, origin, version transition, and
+   pending migrations before changing remote state.
+3. Confirm that Wrangler's authenticated account and remote resource IDs/names match
+   the record. Stop on migration drift, a newer schema, or an application downgrade.
+4. Let the CLI verify packaged migration checksums, apply only the missing ordered
+   suffix, deploy the bundled Worker and React assets, and update the record.
 5. Verify `/health`, D1-backed `/ready`, protected-resource discovery, the compiled
-   React shell, the new deployment version, and that no migrations remain.
+   React shell, the exact application version, and the schema version.
 
 An ordinary update must not run `setup -- --resume` or `setup -- --recover`, rotate
 `SETUP_TOKEN_HASH`, replace passkeys, delete resources, or seed local fixture data.
 
-The planned packaged form of this workflow is `npx wikimemory upgrade`. Until that
-published CLI exists, do not claim it is available; use the repository commands
-above.
+## Manage an installed instance
+
+- Run `npx wikimemory dev` for package-owned local D1/KV/Worker testing; state is
+  retained under the current directory's `.wikimemory/dev`.
+- Run `npx wikimemory passkeys list|add|revoke` for owner credential management.
+- Run `npx wikimemory connect codex|claude` only when the user explicitly asks to
+  change that client's MCP configuration.
+- Run `npx wikimemory skills install codex|claude` to install version-matched skills.
+- Preview with `npx wikimemory uninstall`; apply only after exact-target review and
+  explicit destructive confirmation. Remind the user to remove client-owned MCP
+  registrations separately.

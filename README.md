@@ -5,12 +5,64 @@ other MCP clients. It preserves research, project state, technical decisions, an
 reusable context in an auditable revision store that the owner can browse and
 search from the web.
 
-The first usable vertical slice is implemented: local D1 emulation, remote HTTP
-MCP with OAuth/PKCE, passkey production identity, append-only revision storage,
-secret rejection, a React browse/search/history UI, owner restore/purge/session and
-multi-passkey controls,
-sanitized exports, and client skills. See
-[installation](docs/installation.md) to run it locally or deploy it.
+It includes remote HTTP MCP with OAuth/PKCE, passkey identity, append-only revision
+storage, full-text search, a React browse/search/history UI, multi-passkey controls,
+sanitized exports, and version-matched client skills. The server does not call an
+LLM; Claude or Codex performs synthesis while Wikimemory provides deterministic,
+auditable storage and retrieval.
+
+## Quick start
+
+Requirements: Node.js 22+, npm, a Cloudflare account, and a passkey-capable browser
+or password manager. No Google Cloud project or OAuth application is required.
+
+```sh
+npx wrangler login
+npx wikimemory install
+```
+
+The installer previews the exact Cloudflare account, Worker, D1 database, and KV
+namespace before creating anything. Open its one-time URL to register the owner
+passkey, then connect a client and install its memory skills:
+
+```sh
+npx wikimemory connect codex
+npx wikimemory skills install codex
+
+# or
+npx wikimemory connect claude
+npx wikimemory skills install claude
+```
+
+Use the same remote MCP from Claude web or mobile by adding the printed HTTPS `/mcp`
+URL as a custom connector. See the complete [installation guide](docs/installation.md)
+for recovery, passkey management, upgrades, and safe uninstall.
+
+## Local development without a checkout
+
+```sh
+npx wikimemory dev
+```
+
+This starts the packaged Worker, React app, D1, and KV through local Wrangler
+emulation. State persists under `./.wikimemory/dev`; production passkey identity is
+replaced with a clearly marked fake local owner while OAuth, PKCE, scopes, tokens,
+and MCP transport remain real.
+
+## Lifecycle commands
+
+```sh
+npx wikimemory status
+npx wikimemory upgrade
+npx wikimemory recover
+npx wikimemory passkeys list
+npx wikimemory uninstall       # preview only
+```
+
+Parallel installations use `--deployment NAME`. Non-secret lifecycle state lives
+under `~/.config/wikimemory/deployments/NAME/`. Uninstall requires an explicit apply
+step and exact Worker-name confirmation because deleting D1 permanently destroys the
+stored memory.
 
 ## V1 in one picture
 
@@ -21,10 +73,6 @@ Browser ------------ HTTPS web app ---------+--> Cloudflare Worker --> D1
                                              |
 Passkey ------------ owner authentication --+
 ```
-
-The server itself does not call an LLM. Claude or Codex performs synthesis; the
-service provides deterministic storage, retrieval, authorization, history, and
-recovery.
 
 Cloudflare is the recommended V1 host because Workers, D1, and KV all have free
 tier allowances large enough for typical personal use; the
@@ -57,3 +105,7 @@ local emulation, portable export, agent skills, and an installation skill.
 Multi-tenant SaaS, vector search, attachments, built-in chat, offline operation,
 manual document editing, scheduled backups, monitoring infrastructure, custom
 domains, and permanent staging infrastructure are not V1 features.
+
+## License
+
+MIT

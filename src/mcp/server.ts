@@ -3,10 +3,10 @@ import { createMcpHandler } from "agents/mcp";
 import { z } from "zod";
 import { actorFromMcp } from "../auth/props";
 import { DomainError } from "../domain/errors";
-import { isRecord } from "../domain/guards";
 import { MemoryService } from "../domain/memory-service";
 import { chunkText } from "../domain/text-chunk";
 import type { Env } from "../env";
+import { WIKIMEMORY_VERSION } from "../version";
 import { MCP_OUTPUT_SCHEMAS } from "./schemas";
 
 const RECALL_INPUT_SCHEMA = z
@@ -18,6 +18,17 @@ const RECALL_INPUT_SCHEMA = z
   .refine((input) => (input.query === undefined) !== (input.sourceUrl === undefined), {
     message: "Provide exactly one of query or sourceUrl"
   });
+const MAX_CURSOR_LENGTH = 2048;
+const GET_CURSOR_SCHEMA = z
+  .object({
+    v: z.literal(1),
+    revisionId: z.string().min(1).max(200),
+    offset: z.number().int().nonnegative()
+  })
+  .strict();
+const INDEX_CURSOR_SCHEMA = z
+  .object({ v: z.literal(1), afterSlug: z.string().min(1).max(200) })
+  .strict();
 
 function encodeCursor(value: Record<string, unknown>): string {
   const bytes = new TextEncoder().encode(JSON.stringify({ v: 1, ...value }));
@@ -26,15 +37,14 @@ function encodeCursor(value: Record<string, unknown>): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
-function decodeCursor(cursor: string | undefined): Record<string, unknown> {
-  if (cursor === undefined) return {};
+function decodeCursor<T>(cursor: string | undefined, schema: z.ZodType<T>): T | null {
+  if (cursor === undefined) return null;
   try {
     const normalized = cursor.replaceAll("-", "+").replaceAll("_", "/");
     const binary = atob(normalized + "=".repeat((4 - (normalized.length % 4)) % 4));
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
     const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    if (!isRecord(parsed) || parsed["v"] !== 1) throw new Error();
-    return parsed;
+    return schema.parse(parsed);
   } catch {
     throw new DomainError("validation_failed", "Invalid cursor");
   }
@@ -67,7 +77,7 @@ function safeError(error: unknown) {
 }
 
 function createServer(env: Env): McpServer {
-  const server = new McpServer({ name: "wikimemory", version: "0.1.0" });
+  const server = new McpServer({ name: "wikimemory", version: WIKIMEMORY_VERSION });
 
   server.registerTool(
     "orient",
@@ -85,7 +95,7 @@ function createServer(env: Env): McpServer {
     },
     async () => {
       try {
-        const actor = actorFromMcp();
+        const actor = await actorFromMcp(env);
         const service = new MemoryService(env.DB);
         const [document, projects, lint, recent] = await Promise.all([
           service.get(actor, "now"),
@@ -139,7 +149,7 @@ function createServer(env: Env): McpServer {
     async ({ query, sourceUrl, limit }) => {
       try {
         const service = new MemoryService(env.DB);
-        const actor = actorFromMcp();
+        const actor = await actorFromMcp(env);
         const hits =
           sourceUrl === undefined
             ? await service.recall(actor, query ?? "", limit)
@@ -164,7 +174,7 @@ function createServer(env: Env): McpServer {
       inputSchema: {
         slug: z.string().min(1).max(200),
         revisionId: z.string().optional(),
-        cursor: z.string().optional(),
+        cursor: z.string().max(MAX_CURSOR_LENGTH).optional(),
         maxCharacters: z.number().int().min(1).max(32_768).optional()
       },
       outputSchema: MCP_OUTPUT_SCHEMAS.get,
@@ -177,15 +187,15 @@ function createServer(env: Env): McpServer {
     },
     async ({ slug, revisionId, cursor, maxCharacters }) => {
       try {
-        const document = await new MemoryService(env.DB).get(actorFromMcp(), slug, revisionId);
-        const decoded = decodeCursor(cursor);
-        if (decoded["revisionId"] !== undefined && decoded["revisionId"] !== document.revisionId)
+        const document = await new MemoryService(env.DB).get(
+          await actorFromMcp(env),
+          slug,
+          revisionId
+        );
+        const decoded = decodeCursor(cursor, GET_CURSOR_SCHEMA);
+        if (decoded !== null && decoded.revisionId !== document.revisionId)
           throw new DomainError("validation_failed", "Cursor does not match this revision");
-        const decodedOffset = decoded["offset"];
-        const offset =
-          typeof decodedOffset === "number" && Number.isInteger(decodedOffset) && decodedOffset >= 0
-            ? decodedOffset
-            : 0;
+        const offset = decoded?.offset ?? 0;
         const chunk = chunkText(document.body, offset, maxCharacters ?? 32_768);
         const body = chunk.body;
         const nextCursor =
@@ -210,7 +220,7 @@ function createServer(env: Env): McpServer {
       inputSchema: {
         type: z.enum(["system", "project", "topic", "source", "note"]).optional(),
         limit: z.number().int().min(1).max(100).optional(),
-        cursor: z.string().optional()
+        cursor: z.string().max(MAX_CURSOR_LENGTH).optional()
       },
       outputSchema: MCP_OUTPUT_SCHEMAS.index,
       annotations: {
@@ -222,11 +232,10 @@ function createServer(env: Env): McpServer {
     },
     async ({ type, limit, cursor }) => {
       try {
-        const decoded = decodeCursor(cursor);
-        const afterSlug =
-          typeof decoded["afterSlug"] === "string" ? decoded["afterSlug"] : undefined;
+        const decoded = decodeCursor(cursor, INDEX_CURSOR_SCHEMA);
+        const afterSlug = decoded?.afterSlug;
         const service = new MemoryService(env.DB);
-        const items = await service.index(actorFromMcp(), {
+        const items = await service.index(await actorFromMcp(env), {
           ...(type === undefined ? {} : { type }),
           ...(limit === undefined ? {} : { limit }),
           ...(afterSlug === undefined ? {} : { afterSlug })
@@ -263,7 +272,7 @@ function createServer(env: Env): McpServer {
     },
     async ({ slug, limit }) => {
       try {
-        const items = await new MemoryService(env.DB).history(actorFromMcp(), slug, limit);
+        const items = await new MemoryService(env.DB).history(await actorFromMcp(env), slug, limit);
         return toolResult(
           { revisions: items },
           items
@@ -292,7 +301,7 @@ function createServer(env: Env): McpServer {
     },
     async ({ limit }) => {
       try {
-        const findings = await new MemoryService(env.DB).lint(actorFromMcp(), limit);
+        const findings = await new MemoryService(env.DB).lint(await actorFromMcp(env), limit);
         return toolResult(
           { findings },
           findings.map((item) => `${item.kind}: ${item.slug} — ${item.detail}`).join("\n") ||
@@ -331,7 +340,7 @@ function createServer(env: Env): McpServer {
     },
     async (input) => {
       try {
-        const result = await new MemoryService(env.DB).ingest(actorFromMcp(), {
+        const result = await new MemoryService(env.DB).ingest(await actorFromMcp(env), {
           operationId: input.operationId,
           reason: input.reason,
           slug: input.slug,
@@ -381,7 +390,7 @@ function createServer(env: Env): McpServer {
     },
     async (input) => {
       try {
-        const result = await new MemoryService(env.DB).link(actorFromMcp(), {
+        const result = await new MemoryService(env.DB).link(await actorFromMcp(env), {
           operationId: input.operationId,
           reason: input.reason,
           sourceSlug: input.sourceSlug,
@@ -415,7 +424,7 @@ function createServer(env: Env): McpServer {
     },
     async ({ slug, targetRevisionId }) => {
       try {
-        const actor = actorFromMcp();
+        const actor = await actorFromMcp(env);
         if (!actor.scopes.has("memory:admin"))
           throw new DomainError("forbidden", "Missing required scope memory:admin");
         const service = new MemoryService(env.DB);
@@ -470,7 +479,7 @@ function createServer(env: Env): McpServer {
     },
     async (input) => {
       try {
-        const result = await new MemoryService(env.DB).restore(actorFromMcp(), {
+        const result = await new MemoryService(env.DB).restore(await actorFromMcp(env), {
           operationId: input.operationId,
           reason: input.reason,
           slug: input.slug,

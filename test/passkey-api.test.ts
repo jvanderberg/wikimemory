@@ -42,7 +42,9 @@ function adminToken(
         workspaceId: "primary-workspace",
         principalId: PASSKEY_OWNER_ID,
         clientId: "coverage-client",
-        scopes: ["memory:admin"]
+        scopes: ["memory:admin"],
+        authenticatedAt: new Date(now * 1000).toISOString(),
+        credentialId: "api-credential-two"
       }
     }
   };
@@ -121,12 +123,44 @@ describe("owner passkey administration API", () => {
     ).rejects.toMatchObject({ code: "forbidden" } satisfies Partial<DomainError>);
   });
 
-  it("requires recent token authentication", async () => {
+  it("requires a recent passkey ceremony rather than recent token issuance", async () => {
+    const staleCeremony = new Date(Date.now() - 301_000).toISOString();
     await expect(
       handlePasskeyApi(request(), appEnv(), () =>
-        Promise.resolve(adminToken({ createdAt: Math.floor(Date.now() / 1000) - 301 }))
+        Promise.resolve(
+          adminToken({
+            createdAt: Math.floor(Date.now() / 1000),
+            grant: {
+              clientId: "coverage-client",
+              scope: ["memory:admin"],
+              props: {
+                workspaceId: "primary-workspace",
+                principalId: PASSKEY_OWNER_ID,
+                clientId: "coverage-client",
+                scopes: ["memory:admin"],
+                authenticatedAt: staleCeremony,
+                credentialId: "api-credential-two"
+              }
+            }
+          })
+        )
       )
     ).rejects.toMatchObject({ code: "reauthentication_required" } satisfies Partial<DomainError>);
+  });
+
+  it("rejects administration grants whose authorizing passkey was revoked", async () => {
+    const token = adminToken();
+    const props = token.grant.props;
+    if (typeof props !== "object" || props === null)
+      throw new Error("test token props are missing");
+    await expect(
+      handlePasskeyApi(request(), appEnv(), () =>
+        Promise.resolve({
+          ...token,
+          grant: { ...token.grant, props: { ...props, credentialId: "revoked-passkey" } }
+        })
+      )
+    ).rejects.toMatchObject({ code: "forbidden" } satisfies Partial<DomainError>);
   });
 
   it("lists credentials and creates registration links", async () => {
@@ -146,7 +180,10 @@ describe("owner passkey administration API", () => {
     const unwrap = (): Promise<TokenSummary<unknown>> => Promise.resolve(adminToken());
     const credentialRef = await sha256("api-credential-one");
     const revoked = await handlePasskeyApi(request("DELETE", { credentialRef }), appEnv(), unwrap);
-    await expect(revoked.json()).resolves.toEqual({ revoked: credentialRef });
+    await expect(revoked.json()).resolves.toEqual({
+      revoked: credentialRef,
+      sessionCleanupComplete: true
+    });
     await expect(
       env.DB.prepare(
         "SELECT credential_id FROM passkey_credentials WHERE credential_id = 'api-credential-one'"
@@ -156,5 +193,36 @@ describe("owner passkey administration API", () => {
     const refused = await handlePasskeyApi(request("PATCH"), appEnv(), unwrap);
     expect(refused.status).toBe(405);
     expect(refused.headers.get("allow")).toBe("GET, POST, DELETE");
+  });
+
+  it("reports successful revocation when stale-session cleanup is unavailable", async () => {
+    await env.DB.prepare(`INSERT INTO passkey_credentials
+      (credential_id, principal_id, public_key, counter, transports_json, device_type, backed_up, created_at, label)
+      VALUES ('api-cleanup-failure', ?, 'public-key-cleanup', 0, '[]', 'singleDevice', 0,
+              '2026-07-19T00:00:02Z', 'Cleanup failure')`)
+      .bind(PASSKEY_OWNER_ID)
+      .run();
+    const originalList = env.OAUTH_KV.list.bind(env.OAUTH_KV);
+    env.OAUTH_KV.list = () => {
+      throw new Error("injected KV outage");
+    };
+    try {
+      const credentialRef = await sha256("api-cleanup-failure");
+      const response = await handlePasskeyApi(request("DELETE", { credentialRef }), appEnv(), () =>
+        Promise.resolve(adminToken())
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        revoked: credentialRef,
+        sessionCleanupComplete: false
+      });
+      await expect(
+        env.DB.prepare(
+          "SELECT credential_id FROM passkey_credentials WHERE credential_id = 'api-cleanup-failure'"
+        ).first()
+      ).resolves.toBeNull();
+    } finally {
+      env.OAUTH_KV.list = originalList;
+    }
   });
 });

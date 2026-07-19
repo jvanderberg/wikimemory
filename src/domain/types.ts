@@ -116,6 +116,7 @@ export interface LinkRequest {
 export interface OwnerContext extends ActorContext {
   role: "owner";
   reauthenticatedAt: string;
+  credentialId?: string;
 }
 
 export interface PurgeAuthorization {

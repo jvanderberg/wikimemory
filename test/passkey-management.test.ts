@@ -63,7 +63,7 @@ describe("passkey management", () => {
   });
 
   it("creates opaque, expiring, owner-bound registration tokens", async () => {
-    const token = await createRegistrationToken(env.DB, "  Phone  ");
+    const token = await createRegistrationToken(env.DB, "  Phone  ", "credential-two");
     expect(token.rawToken).toMatch(/^[A-Za-z0-9_-]{43}$/u);
     expect(Date.parse(token.expiresAt)).toBeGreaterThan(Date.now());
     await expect(registrationToken(env.DB, token.rawToken)).resolves.toEqual({
@@ -74,11 +74,33 @@ describe("passkey management", () => {
 
     const expiredRaw = "expired-registration-token-with-32-characters";
     await env.DB.prepare(`INSERT INTO passkey_registration_tokens
-      (token_hash, principal_id, label, expires_at, created_at)
-      VALUES (?, ?, 'Expired', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')`)
+      (token_hash, principal_id, authorizing_credential_id, label, expires_at, created_at)
+      VALUES (?, ?, 'credential-two', 'Expired', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')`)
       .bind(await sha256(expiredRaw), PASSKEY_OWNER_ID)
       .run();
     await expect(registrationToken(env.DB, expiredRaw)).resolves.toBeNull();
+  });
+
+  it("invalidates registration capabilities with their authorizing credential", async () => {
+    await env.DB.prepare(`INSERT INTO passkey_credentials
+      (credential_id, principal_id, public_key, counter, transports_json, device_type, backed_up, created_at, label)
+      VALUES ('registration-authorizer', ?, 'public-key-authorizer', 0, '[]', 'singleDevice', 0,
+              '2026-07-19T00:00:03Z', 'Authorizing device')`)
+      .bind(PASSKEY_OWNER_ID)
+      .run();
+    const token = await createRegistrationToken(
+      env.DB,
+      "Attacker replacement",
+      "registration-authorizer"
+    );
+    await revokePasskey(env.DB, await sha256("registration-authorizer"));
+    await expect(registrationToken(env.DB, token.rawToken)).resolves.toBeNull();
+  });
+
+  it("atomically refuses registration capabilities from missing credentials", async () => {
+    await expect(
+      createRegistrationToken(env.DB, "Unauthorized replacement", "missing-authorizer")
+    ).rejects.toMatchObject({ code: "forbidden" });
   });
 
   it("requires authentication from the last five minutes", () => {
@@ -97,8 +119,10 @@ describe("passkey management", () => {
   });
 
   it("rejects invalid labels and unknown credential references", async () => {
-    await expect(createRegistrationToken(env.DB, "   ")).rejects.toThrow();
-    await expect(createRegistrationToken(env.DB, "x".repeat(81))).rejects.toThrow();
+    await expect(createRegistrationToken(env.DB, "   ", "credential-two")).rejects.toThrow();
+    await expect(
+      createRegistrationToken(env.DB, "x".repeat(81), "credential-two")
+    ).rejects.toThrow();
     await expect(revokePasskey(env.DB, "invalid")).rejects.toMatchObject({
       code: "validation_failed"
     });

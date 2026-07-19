@@ -3,11 +3,13 @@ import { createHash, randomBytes } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import { z } from "zod";
+import { passkeyRuntime } from "./lifecycle-runtime.ts";
 import { configuredOrigin } from "./setup.ts";
 
-const PRODUCTION_CONFIG = "wrangler.production.jsonc";
-const CLI_STATE = ".wikimemory-cli.json";
+const PRODUCTION_CONFIG = passkeyRuntime.config;
+const CLI_STATE = passkeyRuntime.client;
 const CALLBACK = "http://127.0.0.1:45831/callback";
 const CLIENT_SCHEMA = z.object({ clientId: z.string().min(1) });
 const DCR_SCHEMA = z.object({ client_id: z.string().min(1) });
@@ -22,6 +24,10 @@ const PASSKEY_SCHEMA = z.object({
 });
 const LIST_SCHEMA = z.object({ passkeys: z.array(PASSKEY_SCHEMA) });
 const ADD_SCHEMA = z.object({ registrationUrl: z.url(), expiresAt: z.string() });
+const REVOKE_SCHEMA = z.object({
+  revoked: z.string(),
+  sessionCleanupComplete: z.boolean()
+});
 
 type Command =
   | { kind: "list" }
@@ -39,8 +45,11 @@ function command(args: string[]): Command {
     /^[a-f0-9]{64}$/u.test(args[1])
   )
     return { kind: "revoke", credentialRef: args[1] };
+  const executable = passkeyRuntime.config.endsWith("wrangler.jsonc")
+    ? "wikimemory passkeys"
+    : "npm run passkeys --";
   throw new Error(
-    'Usage: npm run passkeys -- list\n       npm run passkeys -- add --name "Backup key"\n       npm run passkeys -- revoke CREDENTIAL_REF'
+    `Usage: ${executable} list\n       ${executable} add --name "Backup key"\n       ${executable} revoke CREDENTIAL_REF`
   );
 }
 
@@ -148,8 +157,8 @@ async function accessToken(origin: string, client: string): Promise<string> {
   return TOKEN_SCHEMA.parse(await response.json()).access_token;
 }
 
-async function main(): Promise<void> {
-  const selected = command(process.argv.slice(2));
+export async function runPasskeys(args: string[]): Promise<void> {
+  const selected = command(args);
   const origin = configuredOrigin(await readFile(PRODUCTION_CONFIG, "utf8"));
   if (origin === null || origin === "https://bootstrap.invalid")
     throw new Error("A deployed wrangler.production.jsonc is required");
@@ -184,15 +193,22 @@ async function main(): Promise<void> {
       throw new Error(
         `Passkey revocation failed with HTTP ${response.status}: ${await response.text()}`
       );
+    const result = REVOKE_SCHEMA.parse(await response.json());
+    console.log(`Revoked ${result.revoked}.`);
     console.log(
-      `Revoked ${selected.credentialRef}. Sessions created by that credential were also revoked.`
+      result.sessionCleanupComplete
+        ? "Sessions created by that credential were also removed."
+        : "Session cleanup could not be confirmed, but those sessions are blocked because the passkey no longer exists."
     );
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(
-    `Passkey command failed: ${error instanceof Error ? error.message : "Unknown error"}`
-  );
-  process.exitCode = 1;
-});
+const entrypoint = process.argv[1];
+if (entrypoint !== undefined && import.meta.url === pathToFileURL(entrypoint).href) {
+  runPasskeys(process.argv.slice(2)).catch((error: unknown) => {
+    console.error(
+      `Passkey command failed: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
+    process.exitCode = 1;
+  });
+}

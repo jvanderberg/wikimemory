@@ -3,7 +3,7 @@ import {
   endProductionWebSession,
   listProductionWebSessions,
   productionWebOwner,
-  revokeProductionSessionsForCredential,
+  revokeProductionSessionsForCredentialBestEffort,
   revokeProductionWebSession
 } from "../auth/passkey";
 import {
@@ -185,7 +185,9 @@ export async function handleWebApi(request: Request, env: Env): Promise<Response
         typeof body.label !== "string"
       )
         throw new DomainError("validation_failed", "Passkey name is missing");
-      const token = await createRegistrationToken(env.DB, body.label);
+      if (context.credentialId === undefined)
+        throw new DomainError("forbidden", "The authorizing passkey is no longer valid");
+      const token = await createRegistrationToken(env.DB, body.label, context.credentialId);
       return Response.json({
         registrationUrl: `${new URL("/passkeys/add", request.url).toString()}#${encodeURIComponent(token.rawToken)}`,
         expiresAt: token.expiresAt
@@ -206,8 +208,12 @@ export async function handleWebApi(request: Request, env: Env): Promise<Response
       )
         throw new DomainError("validation_failed", "Passkey reference is missing");
       const credentialId = await revokePasskey(env.DB, body.credentialRef);
-      await revokeProductionSessionsForCredential(env, PASSKEY_OWNER_ID, credentialId);
-      return Response.json({ revoked: body.credentialRef });
+      const sessionCleanupComplete = await revokeProductionSessionsForCredentialBestEffort(
+        env,
+        PASSKEY_OWNER_ID,
+        credentialId
+      );
+      return Response.json({ revoked: body.credentialRef, sessionCleanupComplete });
     }
     if (url.pathname === "/api/app/grants" && request.method === "DELETE") {
       const body: unknown = await request.json();

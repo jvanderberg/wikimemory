@@ -3,11 +3,12 @@ import { readFile, unlink, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
+import { removePackagedDeploymentRecord, uninstallRuntime } from "./lifecycle-runtime.ts";
 import { bindingProperty, configValue, deploymentListIndicatesExisting } from "./setup.ts";
 
-const CONFIG_PATH = "wrangler.production.jsonc";
-const STATE_PATH = ".wikimemory-installer.json";
-const UNINSTALL_STATE_PATH = ".wikimemory-uninstall.json";
+const CONFIG_PATH = uninstallRuntime.config;
+const STATE_PATH = uninstallRuntime.installProgress;
+const UNINSTALL_STATE_PATH = uninstallRuntime.uninstallProgress;
 
 export interface UninstallOptions {
   apply: boolean;
@@ -78,6 +79,10 @@ export function resolveUninstallTargets(config: string): UninstallTargets {
 
 function summary(targets: UninstallTargets): string {
   return `Cloudflare uninstall targets:\n  Account ID: ${targets.accountId}\n  Worker: ${targets.workerName}\n  D1 database: ${targets.databaseName} (${targets.databaseId})\n  KV namespace ID: ${targets.kvNamespaceId}`;
+}
+
+export function clientRemovalInstructions(connectorName = "wikimemory"): string {
+  return `Client registrations are not removed automatically. Disconnect each configured client separately:\n\n  codex mcp logout ${connectorName}\n  codex mcp remove ${connectorName}\n\n  claude mcp logout ${connectorName}\n  claude mcp remove --scope user ${connectorName}\n\nFor Claude web or mobile, remove the custom connector from Settings > Connectors.`;
 }
 
 async function run(args: string[], allowFailure = false): Promise<CommandResult> {
@@ -172,7 +177,7 @@ export async function runUninstall(args: string[], runCommand: CommandRunner = r
   const options = parseUninstallOptions(args);
   if (options.help) {
     console.log(
-      "Usage: npm run uninstall                 # preview only\n       npm run uninstall -- --apply       # prompt for exact Worker name\n       npm run uninstall -- --apply --confirm WORKER_NAME"
+      `Usage: ${uninstallRuntime.executable}                 # preview only\n       ${uninstallRuntime.executable} --apply       # prompt for exact Worker name\n       ${uninstallRuntime.executable} --apply --confirm WORKER_NAME`
     );
     return;
   }
@@ -181,7 +186,9 @@ export async function runUninstall(args: string[], runCommand: CommandRunner = r
     `${summary(targets)}\n\nThis permanently deletes the remote memory database and cannot be undone.`
   );
   if (!options.apply) {
-    console.log("\nPreview only. Rerun with --apply to perform this uninstall.");
+    console.log(
+      `\nPreview only. Rerun with --apply to perform this uninstall.\n\n${clientRemovalInstructions(targets.workerName)}`
+    );
     return;
   }
   await requireExactName(targets.workerName, options.confirmation);
@@ -238,7 +245,7 @@ export async function runUninstall(args: string[], runCommand: CommandRunner = r
       "wrangler",
       "d1",
       "delete",
-      targets.databaseName,
+      targets.databaseId,
       "--skip-confirmation",
       "--config",
       CONFIG_PATH
@@ -252,9 +259,10 @@ export async function runUninstall(args: string[], runCommand: CommandRunner = r
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
+  await removePackagedDeploymentRecord();
   await unlink(UNINSTALL_STATE_PATH);
   console.log(
-    `\nRemoved the Worker, KV namespace, D1 database, and local production config. The remote data is not recoverable.`
+    `\nRemoved the Worker, KV namespace, D1 database, and local production config. The remote data is not recoverable.\n\n${clientRemovalInstructions(targets.workerName)}`
   );
 }
 

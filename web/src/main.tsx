@@ -60,6 +60,10 @@ const manageSchema = z.object({
     })
   )
 });
+const revokePasskeySchema = z.object({
+  revoked: z.string(),
+  sessionCleanupComplete: z.boolean()
+});
 const documentSchema = z.object({
   document: z.object({
     revisionId: z.string(),
@@ -559,8 +563,13 @@ function Manage({ passkeysEnabled }: { passkeysEnabled: boolean }): React.JSX.El
                   onClick={() =>
                     void mutate("DELETE", "/api/app/passkeys", {
                       credentialRef: passkey.credentialRef
-                    }).then(() => {
-                      setNotice("Passkey revoked.");
+                    }).then((raw) => {
+                      const result = revokePasskeySchema.parse(raw);
+                      setNotice(
+                        result.sessionCleanupComplete
+                          ? "Passkey and its browser sessions were revoked."
+                          : "Passkey revoked. Browser-session cleanup could not be confirmed; those sessions are blocked because the passkey no longer exists."
+                      );
                     })
                   }
                 >

@@ -3,10 +3,24 @@ import { setupOptions } from "../src/auth/passkey";
 import { sha256 } from "../src/domain/crypto";
 
 describe("passkey boundaries", () => {
+  it("reports the deployed application version", async () => {
+    const response = await exports.default.fetch(new Request("https://example.test/health"));
+    await expect(response.json()).resolves.toEqual({
+      status: "ok",
+      service: "wikimemory",
+      version: "0.2.0"
+    });
+  });
+
   it("reports D1-backed readiness after passkey migrations", async () => {
     const response = await exports.default.fetch(new Request("https://example.test/ready"));
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ status: "ready", service: "wikimemory" });
+    await expect(response.json()).resolves.toEqual({
+      status: "ready",
+      service: "wikimemory",
+      version: "0.2.0",
+      schemaVersion: "0004_credential_bound_registration_tokens.sql"
+    });
   });
 
   it("serves the React setup shell without embedding setup material", async () => {

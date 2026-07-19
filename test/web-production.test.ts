@@ -107,7 +107,10 @@ describe("production web management boundary", () => {
       ownerRequest("/api/app/passkeys", "DELETE", { credentialRef }),
       appEnv()
     );
-    await expect(revoked.json()).resolves.toEqual({ revoked: credentialRef });
+    await expect(revoked.json()).resolves.toEqual({
+      revoked: credentialRef,
+      sessionCleanupComplete: true
+    });
     await expect(env.OAUTH_KV.get(`web-session:${lostSessionKey}`)).resolves.toBeNull();
   });
 

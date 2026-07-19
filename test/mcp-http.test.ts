@@ -23,7 +23,18 @@ function decodeEvent<T>(body: string, schema: z.ZodType<T>): T {
   return schema.parse(JSON.parse(data.at(-1) ?? body));
 }
 
-async function authorize(): Promise<string> {
+function encodedCursor(value: object): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+async function authorize(): Promise<{
+  accessToken: string;
+  refreshToken: string;
+  clientId: string;
+}> {
   const registration = await responseJson(
     await workerRequest("/oauth/register", {
       method: "POST",
@@ -89,16 +100,20 @@ async function authorize(): Promise<string> {
         resource: `${ORIGIN}/mcp`
       })
     }),
-    z.object({ access_token: z.string() })
+    z.object({ access_token: z.string(), refresh_token: z.string() })
   );
-  return token.access_token;
+  return {
+    accessToken: token.access_token,
+    refreshToken: token.refresh_token,
+    clientId: registration.client_id
+  };
 }
 
 describe("authenticated Streamable HTTP MCP", () => {
   it("exercises every V1 tool through the protocol boundary", async () => {
-    const accessToken = await authorize();
+    const authorization = await authorize();
     const baseHeaders = {
-      authorization: `Bearer ${accessToken}`,
+      authorization: `Bearer ${authorization.accessToken}`,
       "content-type": "application/json",
       accept: "application/json, text/event-stream"
     };
@@ -221,6 +236,39 @@ describe("authenticated Streamable HTTP MCP", () => {
       isError: true,
       structuredContent: { code: "validation_failed" }
     });
+    const missingOffsetCursor = await tool("get", {
+      slug: "mcp-http-fixture",
+      cursor: encodedCursor({ v: 1, revisionId: secondRevisionId })
+    });
+    expect(missingOffsetCursor).toMatchObject({
+      isError: true,
+      structuredContent: { code: "validation_failed" }
+    });
+
+    const oversizedCursorResponse = await workerRequest("/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: id++,
+        method: "tools/call",
+        params: {
+          name: "get",
+          arguments: { slug: "mcp-http-fixture", cursor: "a".repeat(2049) }
+        }
+      })
+    });
+    const oversizedCursor = decodeEvent(
+      await oversizedCursorResponse.text(),
+      z.object({
+        result: z.object({
+          isError: z.literal(true),
+          content: z.array(z.object({ type: z.literal("text"), text: z.string() }))
+        })
+      })
+    );
+    expect(oversizedCursor.result.content[0]?.text).toContain("MCP error -32602");
+    expect(oversizedCursor.result.content[0]?.text).toContain("maximum");
 
     const indexed = await tool("index", { type: "note", limit: 1 });
     expect(indexed.structuredContent["items"]).toEqual(
@@ -229,6 +277,14 @@ describe("authenticated Streamable HTTP MCP", () => {
     const indexCursor = z.string().parse(indexed.structuredContent["nextCursor"]);
     const nextIndexPage = await tool("index", { type: "note", limit: 1, cursor: indexCursor });
     expect(nextIndexPage.isError).not.toBe(true);
+    const extraFieldCursor = await tool("index", {
+      type: "note",
+      cursor: encodedCursor({ v: 1, afterSlug: "mcp-http-fixture", extra: true })
+    });
+    expect(extraFieldCursor).toMatchObject({
+      isError: true,
+      structuredContent: { code: "validation_failed" }
+    });
     const history = await tool("history", { slug: "mcp-http-fixture" });
     expect(history.structuredContent["revisions"]).toHaveLength(2);
     const missingHistory = await tool("history", { slug: "missing-mcp-document" });
@@ -275,5 +331,79 @@ describe("authenticated Streamable HTTP MCP", () => {
       slug: "mcp-http-fixture",
       revisionNumber: 4
     });
+
+    const downscoped = await responseJson(
+      await workerRequest("/oauth/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: authorization.clientId,
+          refresh_token: authorization.refreshToken,
+          scope: "memory:read",
+          resource: `${ORIGIN}/mcp`
+        })
+      }),
+      z.object({ access_token: z.string(), scope: z.string() })
+    );
+    expect(downscoped.scope).toBe("memory:read");
+    const readOnlyHeaders = {
+      authorization: `Bearer ${downscoped.access_token}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream"
+    };
+    const readOnlyInitialize = await workerRequest("/mcp", {
+      method: "POST",
+      headers: readOnlyHeaders,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 100,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "mcp-read-only", version: "0.1.0" }
+        }
+      })
+    });
+    const readOnlySessionId = readOnlyInitialize.headers.get("mcp-session-id");
+    const readOnlySessionHeaders = new Headers(readOnlyHeaders);
+    if (readOnlySessionId !== null) readOnlySessionHeaders.set("mcp-session-id", readOnlySessionId);
+    await workerRequest("/mcp", {
+      method: "POST",
+      headers: readOnlySessionHeaders,
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })
+    });
+    const forbiddenWrite = decodeEvent(
+      await (
+        await workerRequest("/mcp", {
+          method: "POST",
+          headers: readOnlySessionHeaders,
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 101,
+            method: "tools/call",
+            params: {
+              name: "ingest",
+              arguments: {
+                operationId: "downscoped-write-must-fail",
+                reason: "verify OAuth downscoping",
+                slug: "downscoped-write-must-fail",
+                type: "note",
+                title: "This must not be created",
+                body: "A read-only token must not write."
+              }
+            }
+          })
+        })
+      ).text(),
+      z.object({
+        result: z.object({
+          isError: z.literal(true),
+          structuredContent: z.object({ code: z.literal("forbidden") })
+        })
+      })
+    );
+    expect(forbiddenWrite.result.structuredContent.code).toBe("forbidden");
   });
 });

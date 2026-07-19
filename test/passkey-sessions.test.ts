@@ -102,12 +102,7 @@ describe("production passkey sessions", () => {
       new Request(`${BASE_URL}/app`, { headers: { cookie: `wm_web_session=${ownerSession}` } }),
       appEnv
     );
-    expect(owner).toMatchObject({
-      principalId: PASSKEY_OWNER_ID,
-      workspaceId: "primary-workspace",
-      role: "owner"
-    });
-    expect(owner?.scopes).toEqual(new Set(["memory:read", "memory:write", "memory:admin"]));
+    expect(owner).toBeNull();
   });
 
   it("lists owner sessions and marks the current browser", async () => {
@@ -247,5 +242,38 @@ describe("passkey flow boundaries", () => {
       appEnv
     );
     expect(registration.status).toBe(403);
+  });
+});
+
+describe("revoked passkey sessions", () => {
+  it("fails closed when the session credential has been revoked", async () => {
+    const appEnv = productionEnv();
+    const credentialId = "credential-revoked-after-login";
+    await env.DB.prepare(`INSERT OR IGNORE INTO principals
+      (id, provider, provider_subject, email_verified, created_at)
+      VALUES (?, 'passkey', ?, 1, '2026-07-19T00:00:00Z')`)
+      .bind(PASSKEY_OWNER_ID, PASSKEY_OWNER_ID)
+      .run();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO passkey_credentials
+        (credential_id, principal_id, public_key, counter, transports_json, device_type, backed_up, created_at, label)
+        VALUES (?, ?, 'public-key', 0, '[]', 'singleDevice', 0,
+                '2026-07-19T00:00:00Z', 'Revoked device')`).bind(credentialId, PASSKEY_OWNER_ID),
+      env.DB.prepare(`INSERT INTO passkey_credentials
+        (credential_id, principal_id, public_key, counter, transports_json, device_type, backed_up, created_at, label)
+        VALUES ('credential-still-active', ?, 'public-key', 0, '[]', 'singleDevice', 0,
+                '2026-07-19T00:00:01Z', 'Active device')`).bind(PASSKEY_OWNER_ID)
+    ]);
+    const sessionId = "revoked-credential-session";
+    await storeSession(sessionId, { credentialId });
+    const request = new Request(`${BASE_URL}/app`, {
+      headers: { cookie: `wm_web_session=${sessionId}` }
+    });
+    await expect(productionWebOwner(request, appEnv)).resolves.not.toBeNull();
+
+    await env.DB.prepare("DELETE FROM passkey_credentials WHERE credential_id = ?")
+      .bind(credentialId)
+      .run();
+    await expect(productionWebOwner(request, appEnv)).resolves.toBeNull();
   });
 });

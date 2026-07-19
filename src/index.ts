@@ -16,10 +16,12 @@ import {
   verifyPasskeyAuthorization
 } from "./auth/passkey";
 import { handlePasskeyApi } from "./auth/passkey-api";
+import { downscopeAccessToken } from "./auth/props";
 import { DomainError } from "./domain/errors";
 import type { Env } from "./env";
 import { validateEnvironment } from "./env";
 import { mcpHandler } from "./mcp/server";
+import { LATEST_SCHEMA_VERSION, WIKIMEMORY_VERSION } from "./version";
 import { handleWebApi } from "./web/app";
 
 const webHandler = {
@@ -57,7 +59,7 @@ const webHandler = {
     if (url.pathname === "/api/app" || url.pathname.startsWith("/api/app/"))
       return handleWebApi(request, env);
     if (url.pathname === "/health") {
-      return Response.json({ status: "ok", service: "wikimemory" });
+      return Response.json({ status: "ok", service: "wikimemory", version: WIKIMEMORY_VERSION });
     }
     if (url.pathname === "/ready") {
       await env.DB.batch([
@@ -66,7 +68,17 @@ const webHandler = {
         env.DB.prepare("SELECT 1 FROM passkey_challenges LIMIT 1"),
         env.DB.prepare("SELECT 1 FROM passkey_registration_tokens LIMIT 1")
       ]);
-      return Response.json({ status: "ready", service: "wikimemory" });
+      const schema = await env.DB.prepare(
+        "SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1"
+      ).first<{ name: string }>();
+      if (schema?.name !== LATEST_SCHEMA_VERSION)
+        throw new Error("Wikimemory database schema does not match this Worker version");
+      return Response.json({
+        status: "ready",
+        service: "wikimemory",
+        version: WIKIMEMORY_VERSION,
+        schemaVersion: schema.name
+      });
     }
     const asset = await env.ASSETS.fetch(request);
     const headers = new Headers(asset.headers);
@@ -117,6 +129,7 @@ export default new OAuthProvider<Env>({
   accessTokenTTL: 3600,
   refreshTokenTTL: 2_592_000,
   clientRegistrationTTL: 7_776_000,
+  tokenExchangeCallback: downscopeAccessToken,
   resourceMetadata: {
     scopes_supported: ["memory:read", "memory:write", "memory:admin"],
     bearer_methods_supported: ["header"],

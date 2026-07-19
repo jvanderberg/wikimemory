@@ -1,0 +1,76 @@
+#!/usr/bin/env node
+import { mkdir } from "node:fs/promises";
+import process from "node:process";
+import { WIKIMEMORY_VERSION } from "../src/version.ts";
+import { deploymentArguments, installArguments } from "./cli-options.ts";
+import { deploymentPaths } from "./deployment-record.ts";
+import { packageRoot } from "./package-root.ts";
+
+const [command, ...args] = process.argv.slice(2);
+
+function usage(): string {
+  return `Wikimemory ${WIKIMEMORY_VERSION}\n\nUsage:\n  wikimemory install [--deployment NAME] [installer options]\n  wikimemory recover [--deployment NAME]\n  wikimemory dev [wrangler dev options]\n  wikimemory status [--deployment NAME]\n  wikimemory upgrade [--deployment NAME] [--yes]\n  wikimemory passkeys [--deployment NAME] list|add|revoke\n  wikimemory connect [--deployment NAME] codex|claude\n  wikimemory skills install codex|claude\n  wikimemory uninstall [--deployment NAME] [--apply]\n  wikimemory --version`;
+}
+
+async function main(): Promise<void> {
+  if (command === undefined || command === "--help" || command === "help") {
+    console.log(usage());
+    return;
+  }
+  if (command === "--version" || command === "version") {
+    console.log(WIKIMEMORY_VERSION);
+    return;
+  }
+  const root = packageRoot();
+  if (command === "dev") {
+    const { runDev } = await import("./dev.ts");
+    await runDev(root, args);
+    return;
+  }
+  if (command === "skills") {
+    if (args[0] !== "install" || args.length !== 2)
+      throw new Error("Usage: wikimemory skills install codex|claude");
+    const { installSkills } = await import("./client-tools.ts");
+    await installSkills(root, args[1]);
+    return;
+  }
+  const parsed = deploymentArguments(args);
+  const paths = deploymentPaths(parsed.deployment);
+  if (command === "install" || command === "recover") {
+    await mkdir(paths.directory, { recursive: true, mode: 0o700 });
+    process.env["WIKIMEMORY_PACKAGE_ROOT"] = root;
+    process.env["WIKIMEMORY_STATE_DIR"] = paths.directory;
+    process.env["WIKIMEMORY_PACKAGED"] = "1";
+    const { runSetup } = await import("./setup.ts");
+    const setupArguments = installArguments(parsed.deployment, parsed.remaining);
+    await runSetup(command === "recover" ? ["--recover", ...setupArguments] : setupArguments);
+  } else if (command === "upgrade") {
+    const { runUpgrade } = await import("./upgrade.ts");
+    await runUpgrade(["--deployment", parsed.deployment, ...parsed.remaining]);
+  } else if (command === "status") {
+    if (parsed.remaining.length !== 0)
+      throw new Error("Usage: wikimemory status [--deployment NAME]");
+    const { runStatus } = await import("./status.ts");
+    await runStatus(parsed.deployment);
+  } else if (command === "passkeys") {
+    process.env["WIKIMEMORY_STATE_DIR"] = paths.directory;
+    process.env["WIKIMEMORY_PACKAGED"] = "1";
+    const { runPasskeys } = await import("./passkeys.ts");
+    await runPasskeys(parsed.remaining);
+  } else if (command === "connect") {
+    if (parsed.remaining.length !== 1)
+      throw new Error("Usage: wikimemory connect [--deployment NAME] codex|claude");
+    const { connectClient } = await import("./client-tools.ts");
+    await connectClient(parsed.deployment, parsed.remaining[0]);
+  } else if (command === "uninstall") {
+    process.env["WIKIMEMORY_STATE_DIR"] = paths.directory;
+    process.env["WIKIMEMORY_PACKAGED"] = "1";
+    const { runUninstall } = await import("./uninstall.ts");
+    await runUninstall(parsed.remaining);
+  } else throw new Error(`Unknown command: ${command}`);
+}
+
+main().catch((error: unknown) => {
+  console.error(`Wikimemory failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+  process.exitCode = 1;
+});

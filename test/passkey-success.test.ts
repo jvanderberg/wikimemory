@@ -5,13 +5,19 @@ import type {
 } from "@simplewebauthn/server";
 import {
   beginPasskeyAuthorization,
+  productionWebOwner,
   registrationOptions,
   registrationVerify,
   setupOptions,
   setupVerify,
   verifyPasskeyAuthorization
 } from "../src/auth/passkey";
-import { createRegistrationToken, PASSKEY_OWNER_ID } from "../src/auth/passkey-management";
+import {
+  createRegistrationToken,
+  PASSKEY_OWNER_ID,
+  registrationToken,
+  revokePasskey
+} from "../src/auth/passkey-management";
 import { sha256 } from "../src/domain/crypto";
 import type { Env } from "../src/env";
 
@@ -153,7 +159,11 @@ describe("successful passkey lifecycle", () => {
       VALUES (?, 'passkey', ?, 1, '2026-07-19T00:00:00Z')`)
       .bind(PASSKEY_OWNER_ID, PASSKEY_OWNER_ID)
       .run();
-    const token = await createRegistrationToken(env.DB, "Phone passkey");
+    const token = await createRegistrationToken(
+      env.DB,
+      "Phone passkey",
+      browserRegistrationResponse.id
+    );
     const appEnv = productionEnv("a".repeat(64));
     const started = await registrationOptions(
       post("/passkeys/add/options", { token: token.rawToken }),
@@ -179,6 +189,55 @@ describe("successful passkey lifecycle", () => {
         .bind(await sha256(token.rawToken))
         .first()
     ).resolves.toBeNull();
+  });
+
+  it("rejects a registration flow after its authorizing credential is revoked", async () => {
+    const authorizingCredential = "cGhvbmUtY3JlZGVudGlhbA";
+    const token = await createRegistrationToken(
+      env.DB,
+      "Attacker replacement",
+      authorizingCredential
+    );
+    const appEnv = productionEnv("a".repeat(64));
+    const started = await registrationOptions(
+      post("/passkeys/add/options", { token: token.rawToken }),
+      appEnv
+    );
+    await revokePasskey(env.DB, await sha256(authorizingCredential));
+    const completed = await registrationVerify(
+      post("/passkeys/add/verify", {
+        flowId: await flowId(started),
+        response: browserRegistrationResponse
+      }),
+      appEnv,
+      () => Promise.resolve(verifiedRegistration("YXR0YWNrZXItY3JlZGVudGlhbA"))
+    );
+    expect(completed.status).toBe(403);
+  });
+
+  it("invalidates every outstanding registration capability during recovery", async () => {
+    const stale = await createRegistrationToken(
+      env.DB,
+      "Stale recovery link",
+      browserRegistrationResponse.id
+    );
+    const recoveryToken = "recovery-setup-token-long-enough-for-validation";
+    const appEnv = productionEnv(await sha256(recoveryToken));
+    const started = await setupOptions(
+      post("/setup/options", { token: recoveryToken, label: "Recovered passkey" }),
+      appEnv
+    );
+    const completed = await setupVerify(
+      post("/setup/verify", {
+        flowId: await flowId(started),
+        response: browserRegistrationResponse
+      }),
+      appEnv,
+      () => Promise.resolve(verifiedRegistration("cmVjb3ZlcmVkLWNyZWRlbnRpYWw")),
+      () => Promise.resolve()
+    );
+    await expect(completed.json()).resolves.toEqual({ ok: true, mode: "recovery" });
+    await expect(registrationToken(env.DB, stale.rawToken)).resolves.toBeNull();
   });
 
   it("creates a production browser session after verified authentication", async () => {
@@ -207,7 +266,17 @@ describe("successful passkey lifecycle", () => {
       () => Promise.resolve(verifiedAuthentication(1))
     );
     await expect(completed.json()).resolves.toEqual({ redirectTo: "/app" });
-    expect(completed.headers.get("set-cookie")).toMatch(/^wm_web_session=/u);
+    expect(completed.headers.get("set-cookie")).toMatch(
+      /^wm_web_session=[^;]+; HttpOnly; Secure; Path=\/; SameSite=Lax; Max-Age=86400$/u
+    );
+    const cookie = completed.headers.get("set-cookie")?.split(";", 1)[0];
+    expect(cookie).toBeDefined();
+    await expect(
+      productionWebOwner(
+        new Request(`${BASE_URL}/api/app/session`, { headers: { cookie: cookie ?? "" } }),
+        appEnv
+      )
+    ).resolves.toMatchObject({ principalId: PASSKEY_OWNER_ID, role: "owner" });
     await expect(
       env.DB.prepare("SELECT counter FROM passkey_credentials WHERE credential_id = ?")
         .bind(browserRegistrationResponse.id)
