@@ -113,6 +113,13 @@ export interface LinkRequest {
   link: LinkValue;
 }
 
+export interface ArchiveRequest {
+  operationId: string;
+  reason: string;
+  slug: string;
+  expectedRevisionId: string;
+}
+
 export interface OwnerContext extends ActorContext {
   role: "owner";
   reauthenticatedAt: string;

@@ -17,6 +17,10 @@ Store conclusions that will help a future session. Do not store scratch work, ro
 5. If the service reports a conflict, reread the current revision, merge deliberately, and retry with a new operation ID. Never overwrite blindly.
 6. Report the saved slug and revision to the user.
 
+If this workflow created the wrong page, use `archive` with that page's current
+revision ID and a fresh operation ID. Archive preserves content and history; it is
+not permanent deletion.
+
 Keep summaries compact and metadata structured. Put custom scalar fields such as
 `author` and `published` in `singletonMetadata`; use `tags` for multivalued tags. Use
 links for explicit relationships. Record uncertain claims as uncertain and preserve

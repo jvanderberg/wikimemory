@@ -22,4 +22,5 @@ available. Store scalar attribution such as author and publication date in
 
 Use `lint` periodically. Fix only clear issues; ask before resolving ambiguous
 contradictions or status. Use restore only after showing `restore_preview` or when
-I explicitly ask to restore a revision.
+I explicitly ask to restore a revision. If you created a page by mistake, use
+`archive` with its current revision ID; do not treat archive as permanent deletion.

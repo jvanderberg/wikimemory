@@ -43,6 +43,8 @@ in V1.
 At the start of non-trivial work an agent calls `orient`, searches with `recall`,
 and reads promising pages with `get`. After a durable decision, finding, or project
 status change it recalls again to avoid duplication and calls `ingest` or `link`.
+If it created a page in error, it may append an archived status with `archive`;
+permanent deletion remains an owner-only browser action.
 
 Agents do not store credentials, routine conversation, transient command output,
 or information useful only within the current turn.
@@ -86,7 +88,10 @@ letter, and are at most 64 characters.
 
 Link kinds are `related`, `part_of`, `supersedes`, `cites`, and `contradicts`.
 Explicit links require an existing target. Body references to missing `[[slugs]]`
-are retained as unresolved references and reported by lint.
+are retained as unresolved references and reported by lint. A document cannot link
+to itself; self-edges do not satisfy orphan detection even if legacy data contains one.
+`source_url` values are canonicalized on write and lookup by removing fragments,
+common tracking parameters, default ports, and non-root trailing slashes.
 
 ## 5. Mutation semantics
 
@@ -105,6 +110,8 @@ are retained as unresolved references and reported by lint.
 - Secret scanning occurs before persistence. Likely secrets are rejected; there is
   no agent-accessible override in V1. Unsupported manual operator work must not
   weaken this invariant in the service.
+- Archive is a normal append-only revision that sets `status=archived`. It preserves
+  content and history, remains reversible, and suppresses archived-page lint noise.
 
 ## 6. Restore and purge
 
@@ -128,7 +135,7 @@ passed to an MCP client.
 V1 scopes are:
 
 - `memory:read` — orient, recall, get, index, history, and lint;
-- `memory:write` — ingest and link; and
+- `memory:write` — ingest, link, and archive; and
 - `memory:admin` — MCP restore operations only in V1.
 
 Access tokens must be audience-bound to the canonical MCP resource URI.

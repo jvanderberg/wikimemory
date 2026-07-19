@@ -115,6 +115,11 @@ syntax.
 Current reads select the greatest revision number per document and only then load
 metadata and links for that revision. No timestamp determines current state.
 
+An archived document is ordinary current state with singleton metadata
+`status=archived`. Archiving appends a full revision and preserves searchability and
+history; lint omits archived documents. Removing or changing that status through a
+later expected-revision update reverses the archive.
+
 ## Restore
 
 Restore reads the chosen historical snapshot, applies it as a new revision whose

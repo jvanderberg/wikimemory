@@ -18,8 +18,12 @@ connection explicitly requests `memory:read memory:write memory:admin`; V1 does 
 rely on incremental scope challenges.
 
 All tools return a short human-readable content item plus equivalent structured
-content. Error results contain a stable `code`, safe message, request ID, and
-code-specific fields. They never echo secret candidates or OAuth material.
+content. Read tools never copy stored titles, bodies, summaries, snippets, or
+revision reasons into the free-form text item. Stored prose appears only in named
+structured fields, and read envelopes containing it carry
+`storedContentTrust: "untrusted"`. Error results contain a stable `code`, safe
+message, request ID, and code-specific fields. They never echo secret candidates or
+OAuth material.
 
 ## Tools
 
@@ -32,9 +36,11 @@ Input: optional project limit and recent-event limit within server caps.
 
 ### `recall` — `memory:read`, read-only
 
-Searches current content. Input provides exactly one of a text `query` or an exact
+Searches current content. Input provides exactly one of a text `query` or a canonical
 `sourceUrl`, plus an optional limit. Exact source-URL lookup uses indexed current
-metadata and is the preferred duplicate check before ingesting a source. Output:
+metadata and is the preferred duplicate check before ingesting a source. Common
+tracking parameters, fragments, default ports, and non-root trailing slashes are
+normalized on write and lookup. Output:
 ranked slug/type/title/summary snippets and a normalized 0–1 relevance score.
 Text queries are safe tokenized plain text: quotes, `OR`, and leading minus have no
 operator meaning. Exact titles and contiguous token phrases receive deterministic
@@ -52,7 +58,9 @@ metadata from the requested Markdown chunk and includes an opaque continuation
 cursor. Chunks are Unicode code-point safe and prefer a nearby whitespace boundary;
 an unbroken token may still be split to preserve the hard response bound. Link target
 slugs are immutable revision data, while a previously unresolved `targetDocumentId`
-is resolved dynamically when the target now exists.
+is resolved dynamically when the target now exists. The output explicitly reports
+`linkResolution: "current_workspace_state"`; this means historical link IDs are not
+a point-in-time snapshot even though the stored target slugs are.
 
 ### `index` — `memory:read`, read-only
 
@@ -86,6 +94,8 @@ current revision ID/number and no content.
 `singletonMetadata` accepts standard or custom lowercase keys and declares
 set/remove singleton behavior. `tags` is the simplified multivalued `tag` field.
 Once a custom key has stored values, its cardinality cannot be changed implicitly.
+Schema descriptions and malformed-key errors enumerate the standard singleton keys,
+identify `tag` as multivalued, and explain that custom snake_case keys are allowed.
 
 ### `link` — `memory:write`, mutating
 
@@ -93,10 +103,22 @@ Convenience mutation for one explicit link. Requires operation ID, source slug,
 expected revision ID, kind, target slug, add/remove action, and reason. It creates a
 full new source revision through the same ingest service.
 
+Self-links are rejected for every relationship kind. A remove operation may remove
+a legacy self-link.
+
+### `archive` — `memory:write`, mutating
+
+Marks a mistakenly created non-system page archived by appending a revision
+whose `status` is `archived`. It requires an operation ID, reason, slug, and expected
+revision ID. Content and history remain retrievable and can be restored or revised;
+archive never purges data. Archived pages are omitted from lint findings.
+
 ### `restore_preview` — `memory:admin`, read-only
 
-Compares a historical target revision with current state and returns bounded field,
-metadata, and link differences plus the expected current revision ID needed to apply.
+Compares a historical target revision with current state and returns change flags
+plus bounded current/target previews for each changed field, metadata set, and link
+set. It also returns the expected current revision ID needed to apply. Preview values
+are stored content and are explicitly marked untrusted.
 
 ### `restore_apply` — `memory:admin`, mutating/destructive annotation
 

@@ -60,6 +60,16 @@ const finding = z.object({
   slug: z.string(),
   detail: z.string()
 });
+const storedContentTrust = z.literal("untrusted");
+const restoreDifference = z.object({
+  field: z.enum(["title", "body", "summary", "metadata", "links"]),
+  currentPreview: z.string().nullable(),
+  targetPreview: z.string().nullable(),
+  currentCharacters: z.number().int().nonnegative(),
+  targetCharacters: z.number().int().nonnegative(),
+  currentTruncated: z.boolean(),
+  targetTruncated: z.boolean()
+});
 const ingestResult = {
   documentId: z.string(),
   revisionId: z.string(),
@@ -71,6 +81,7 @@ const ingestResult = {
 
 export const MCP_OUTPUT_SCHEMAS = {
   orient: {
+    storedContentTrust,
     now: document,
     activeProjects: z.array(indexEntry),
     recentRevisions: z.array(
@@ -84,6 +95,7 @@ export const MCP_OUTPUT_SCHEMAS = {
     lintCounts: z.record(z.string(), z.number().int().nonnegative())
   },
   recall: {
+    storedContentTrust,
     hits: z.array(
       z.object({
         documentId: z.string(),
@@ -97,12 +109,18 @@ export const MCP_OUTPUT_SCHEMAS = {
       })
     )
   },
-  get: { ...document.shape, nextCursor: z.string().nullable() },
-  index: { items: z.array(indexEntry), nextCursor: z.string().nullable() },
-  history: { revisions: z.array(revision) },
+  get: {
+    ...document.shape,
+    nextCursor: z.string().nullable(),
+    storedContentTrust,
+    linkResolution: z.literal("current_workspace_state")
+  },
+  index: { items: z.array(indexEntry), nextCursor: z.string().nullable(), storedContentTrust },
+  history: { revisions: z.array(revision), storedContentTrust },
   lint: { findings: z.array(finding) },
   ingest: ingestResult,
   link: ingestResult,
+  archive: ingestResult,
   restore_preview: {
     slug: z.string(),
     targetRevisionId: z.string(),
@@ -111,7 +129,9 @@ export const MCP_OUTPUT_SCHEMAS = {
     bodyChanged: z.boolean(),
     summaryChanged: z.boolean(),
     metadataChanged: z.boolean(),
-    linksChanged: z.boolean()
+    linksChanged: z.boolean(),
+    storedContentTrust,
+    differences: z.array(restoreDifference).max(5)
   },
   restore_apply: ingestResult
 } satisfies Record<string, z.ZodRawShape>;

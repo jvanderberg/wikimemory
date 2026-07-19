@@ -540,7 +540,16 @@ describe("MemoryService", () => {
       })
     ).rejects.toMatchObject({ code: "validation_failed" } satisfies Partial<DomainError>);
 
-    // The page must still be reported as an orphan; a self-edge must never satisfy the rule.
+    // Simulate a legacy self-edge created before validation was added. It must not
+    // satisfy the orphan rule even though it exists in the current revision.
+    await testEnv.DB.prepare(
+      `INSERT INTO revision_links(
+         workspace_id, revision_id, kind, target_slug, target_document_id, origin
+       ) VALUES (?, ?, 'supersedes', ?, ?, 'explicit')`
+    )
+      .bind(actor.workspaceId, created.revisionId, "self-linker", created.documentId)
+      .run();
+
     const lint = await service.lint(actor);
     expect(lint).toContainEqual(expect.objectContaining({ kind: "orphan", slug: "self-linker" }));
   });
@@ -629,6 +638,74 @@ describe("MemoryService", () => {
         body: "Body",
         metadata: { set: { sourceUrl: "https://example.com/a" } }
       })
-    ).rejects.toThrow(/lowercase snake_case/);
+    ).rejects.toThrow(/lowercase snake_case.*source_url.*tag is multivalued/);
+  });
+
+  it("archives a non-system document by appending a revision and removes it from lint", async () => {
+    const { actor, service } = await fixture("archive");
+    const created = await service.ingest(actor, {
+      operationId: "archive-1",
+      reason: "create an accidental page",
+      slug: "accidental-page",
+      type: "note",
+      title: "Accidental page",
+      body: "This page should remain recoverable in history."
+    });
+
+    expect(await service.lint(actor)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "orphan", slug: "accidental-page" }),
+        expect.objectContaining({ kind: "missing_summary", slug: "accidental-page" })
+      ])
+    );
+
+    const archived = await service.archive(actor, {
+      operationId: "archive-2",
+      reason: "archive the accidental page",
+      slug: "accidental-page",
+      expectedRevisionId: created.revisionId
+    });
+    expect(archived).toMatchObject({ revisionNumber: 2, idempotentReplay: false });
+    await expect(
+      service.archive(actor, {
+        operationId: "archive-2",
+        reason: "archive the accidental page",
+        slug: "accidental-page",
+        expectedRevisionId: created.revisionId
+      })
+    ).resolves.toMatchObject({ revisionId: archived.revisionId, idempotentReplay: true });
+
+    const snapshot = await service.get(actor, "accidental-page");
+    expect(snapshot.metadata).toContainEqual({
+      key: "status",
+      value: "archived",
+      cardinality: "singleton"
+    });
+    expect(snapshot.body).toBe("This page should remain recoverable in history.");
+    expect(await service.history(actor, "accidental-page")).toHaveLength(2);
+    expect((await service.lint(actor)).filter(({ slug }) => slug === "accidental-page")).toEqual(
+      []
+    );
+  });
+
+  it("does not allow system documents to be archived", async () => {
+    const { actor, service } = await fixture("archive-system");
+    const created = await service.ingest(actor, {
+      operationId: "archive-system-1",
+      reason: "create an orientation page",
+      slug: "system-guide",
+      type: "system",
+      title: "Now",
+      body: "Current orientation"
+    });
+
+    await expect(
+      service.archive(actor, {
+        operationId: "archive-system-2",
+        reason: "attempt to archive orientation",
+        slug: "system-guide",
+        expectedRevisionId: created.revisionId
+      })
+    ).rejects.toMatchObject({ code: "validation_failed" } satisfies Partial<DomainError>);
   });
 });

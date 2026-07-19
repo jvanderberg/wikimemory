@@ -56,7 +56,9 @@ would be a separate design with substantial search and recovery tradeoffs.
 
 - MCP descriptions and skills state that retrieved content is data, not instruction.
 - `source` documents default to `trust=untrusted`.
-- Search and get responses separate server provenance from document content.
+- Search and get responses separate server provenance from document content. MCP
+  free-form text never interpolates stored prose; it remains in named structured
+  fields under an explicit `storedContentTrust: "untrusted"` marker.
 - Stored content cannot change scopes, invoke tools, or select a different workspace.
 - Audit provenance distinguishes authenticated subject, client, and untrusted agent
   label.
@@ -86,6 +88,8 @@ accidents, not a general secret classifier.
 
 - Agents cannot purge.
 - Restore preview and restore apply are separate MCP tools; apply requires admin.
+- Agent archive is non-destructive and append-only. Permanent purge remains
+  browser-owner-only and retains its recent-passkey and typed-confirmation controls.
 - Web purge requires an owner session, passkey authentication completed within five
   minutes, exact slug confirmation, CSRF validation, and a one-use purge
   authorization consumed in the deletion transaction.

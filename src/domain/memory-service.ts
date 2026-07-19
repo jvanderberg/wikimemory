@@ -3,6 +3,7 @@ import { DomainError } from "./errors";
 import { scanSecrets } from "./secret-scanner";
 import {
   type ActorContext,
+  type ArchiveRequest,
   DOCUMENT_TYPES,
   type DocumentIndexEntry,
   type DocumentSnapshot,
@@ -63,6 +64,9 @@ const SINGLETON_KEYS = new Set([
 ]);
 const MULTI_KEYS = new Set(["tag"]);
 const METADATA_KEY = /^[a-z][a-z0-9_]{0,63}$/;
+
+const STANDARD_METADATA_HELP =
+  "standard singleton keys are status, last_active, project, priority, confidence, source_url, source_type, and trust; tag is multivalued; custom snake_case keys are allowed";
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -166,7 +170,7 @@ function applyMetadataPatch(current: MetadataValue[], request: IngestRequest): M
     if (!METADATA_KEY.test(key))
       throw new DomainError(
         "validation_failed",
-        `invalid metadata key ${key}; keys must be lowercase snake_case matching ${METADATA_KEY.source}`
+        `invalid metadata key ${key}; keys must be lowercase snake_case matching ${METADATA_KEY.source}; ${STANDARD_METADATA_HELP}`
       );
     if (MULTI_KEYS.has(key) || cardinalities.get(key) === "multi") {
       throw new DomainError("validation_failed", `metadata key ${key} is multivalued`);
@@ -183,7 +187,7 @@ function applyMetadataPatch(current: MetadataValue[], request: IngestRequest): M
     if (!METADATA_KEY.test(key))
       throw new DomainError(
         "validation_failed",
-        `invalid metadata key ${key}; keys must be lowercase snake_case matching ${METADATA_KEY.source}`
+        `invalid metadata key ${key}; keys must be lowercase snake_case matching ${METADATA_KEY.source}; ${STANDARD_METADATA_HELP}`
       );
     if (SINGLETON_KEYS.has(key) || cardinalities.get(key) === "singleton") {
       throw new DomainError("validation_failed", `metadata key ${key} is singleton`);
@@ -532,6 +536,11 @@ export class MemoryService {
            SELECT 1 FROM documents target
            WHERE target.workspace_id = d.workspace_id AND target.slug = rl.target_slug
          )
+           AND NOT EXISTS (
+             SELECT 1 FROM revision_metadata archived
+             WHERE archived.workspace_id = d.workspace_id AND archived.revision_id = r.id
+               AND archived.key = 'status' AND archived.value = 'archived'
+           )
          ORDER BY d.slug, rl.target_slug LIMIT ?`
         )
         .bind(actor.workspaceId, bounded)
@@ -540,14 +549,24 @@ export class MemoryService {
         .prepare(
           `SELECT d.slug FROM documents d JOIN current_revisions r ON r.doc_id = d.id
          WHERE d.workspace_id = ? AND d.type != 'system' AND (r.summary IS NULL OR trim(r.summary) = '')
+           AND NOT EXISTS (
+             SELECT 1 FROM revision_metadata archived
+             WHERE archived.workspace_id = d.workspace_id AND archived.revision_id = r.id
+               AND archived.key = 'status' AND archived.value = 'archived'
+           )
          ORDER BY d.slug LIMIT ?`
         )
         .bind(actor.workspaceId, bounded)
         .all<{ slug: string }>(),
       this.db
         .prepare(
-          `SELECT d.slug FROM documents d
+          `SELECT d.slug FROM documents d JOIN current_revisions r ON r.doc_id = d.id
          WHERE d.workspace_id = ? AND d.type != 'system'
+           AND NOT EXISTS (
+             SELECT 1 FROM revision_metadata archived
+             WHERE archived.workspace_id = d.workspace_id AND archived.revision_id = r.id
+               AND archived.key = 'status' AND archived.value = 'archived'
+           )
            AND NOT EXISTS (
              SELECT 1 FROM revision_links rl JOIN current_revisions sr ON sr.id = rl.revision_id
              WHERE rl.workspace_id = d.workspace_id AND (rl.target_document_id = d.id OR sr.doc_id = d.id)
@@ -610,7 +629,8 @@ export class MemoryService {
     actor: ActorContext,
     request: IngestRequest,
     operationKind: "ingest" | "link" | "restore",
-    restoredFromRevisionId: string | null
+    restoredFromRevisionId: string | null,
+    archiving = false
   ): Promise<IngestResult> {
     validateRequest(request);
     const hash = await requestHash(request);
@@ -626,6 +646,7 @@ export class MemoryService {
 
     const creating = current === null;
     if (current === null) {
+      if (archiving) throw new DomainError("not_found", `No document named ${request.slug}`);
       if (request.expectedRevisionId !== undefined) {
         throw new DomainError(
           "revision_conflict",
@@ -636,6 +657,9 @@ export class MemoryService {
         throw new DomainError("validation_failed", "New documents require type, title, and body");
       }
     } else {
+      if (archiving && current.type === "system") {
+        throw new DomainError("validation_failed", "System documents cannot be archived");
+      }
       if (request.type !== undefined && request.type !== current.type) {
         throw new DomainError("validation_failed", "Document type is immutable");
       }
@@ -888,6 +912,23 @@ export class MemoryService {
       },
       "link",
       null
+    );
+  }
+
+  async archive(actor: ActorContext, request: ArchiveRequest): Promise<IngestResult> {
+    requireScope(actor, "memory:write");
+    return this.writeRevision(
+      actor,
+      {
+        operationId: request.operationId,
+        reason: request.reason,
+        slug: request.slug,
+        expectedRevisionId: request.expectedRevisionId,
+        metadata: { set: { status: "archived" } }
+      },
+      "ingest",
+      null,
+      true
     );
   }
 
