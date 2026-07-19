@@ -5,6 +5,7 @@ import { WIKIMEMORY_VERSION } from "../src/version.ts";
 import { deploymentArguments, installArguments } from "./cli-options.ts";
 import { deploymentPaths } from "./deployment-record.ts";
 import { packageRoot } from "./package-root.ts";
+import { conciseError } from "./subprocess.ts";
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -71,6 +72,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(`Wikimemory failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+  console.error(`Wikimemory failed: ${conciseError(error)}`);
   process.exitCode = 1;
 });

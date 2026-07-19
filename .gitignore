@@ -4,6 +4,7 @@ wrangler.production.jsonc
 .wikimemory-cli.json
 .wikimemory-installer.json
 .wikimemory-uninstall.json
+.wikimemory/
 dist/
 coverage/
 playwright-report/

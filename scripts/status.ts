@@ -59,7 +59,13 @@ export async function deploymentStatus(deployment: string): Promise<StatusResult
 
 export async function runStatus(deployment: string): Promise<void> {
   const status = await deploymentStatus(deployment);
-  console.log(
-    `Wikimemory deployment: ${status.deployment}\n  Account: ${status.accountId}\n  Worker: ${status.workerName}\n  D1: ${status.database}\n  KV: ${status.kvNamespace}\n  Origin: ${status.origin}\n  Recorded version: ${status.recordedVersion}\n  Running version: ${status.runningVersion}\n  Schema: ${status.schemaVersion}`
-  );
+  console.log(statusSummary(status));
+}
+
+export function statusSummary(status: StatusResult): string {
+  const mismatch =
+    status.recordedVersion === status.runningVersion
+      ? ""
+      : `\nLocal record: ${status.recordedVersion} (run wikimemory upgrade to reconcile)`;
+  return `Wikimemory ${status.deployment}: ready\nURL: ${status.origin}\nVersion: ${status.runningVersion}\nDatabase: up to date.${mismatch}`;
 }

@@ -1,10 +1,15 @@
-import { spawn } from "node:child_process";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { removePackagedDeploymentRecord, uninstallRuntime } from "./lifecycle-runtime.ts";
 import { bindingProperty, configValue, deploymentListIndicatesExisting } from "./setup.ts";
+import {
+  type CommandResult,
+  commandFailureMessage,
+  conciseError,
+  runCommand as executeCommand
+} from "./subprocess.ts";
 
 const CONFIG_PATH = uninstallRuntime.config;
 const STATE_PATH = uninstallRuntime.installProgress;
@@ -29,12 +34,6 @@ interface UninstallProgress {
   workerDeleted: boolean;
   kvDeleted: boolean;
   databaseDeleted: boolean;
-}
-
-export interface CommandResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
 }
 
 export function parseUninstallOptions(args: string[]): UninstallOptions {
@@ -86,30 +85,9 @@ export function clientRemovalInstructions(connectorName = "wikimemory"): string 
 }
 
 async function run(args: string[], allowFailure = false): Promise<CommandResult> {
-  console.log(`\n> npx ${args.join(" ")}`);
-  const result = await new Promise<CommandResult>((resolve, reject) => {
-    const child = spawn("npx", args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-      process.stdout.write(chunk);
-    });
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-      process.stderr.write(chunk);
-    });
-    child.on("error", (error) => {
-      reject(error);
-    });
-    child.on("close", (code) => {
-      resolve({ stdout, stderr, exitCode: code ?? -1 });
-    });
-  });
+  const result = await executeCommand("npx", args);
   if (result.exitCode !== 0 && !allowFailure)
-    throw new Error(`npx exited with status ${result.exitCode}`);
+    throw new Error(commandFailureMessage("Cloudflare resource deletion", result));
   return result;
 }
 
@@ -195,6 +173,7 @@ export async function runUninstall(args: string[], runCommand: CommandRunner = r
   const progress = await loadProgress(targets);
   await saveProgress(progress);
   if (!progress.workerDeleted) {
+    console.log("  Removing Worker…");
     const probe = await runCommand(
       [
         "wrangler",
@@ -226,6 +205,7 @@ export async function runUninstall(args: string[], runCommand: CommandRunner = r
     await saveProgress(progress);
   }
   if (!progress.kvDeleted) {
+    console.log("  Removing OAuth state…");
     await runCommand([
       "wrangler",
       "kv",
@@ -241,6 +221,7 @@ export async function runUninstall(args: string[], runCommand: CommandRunner = r
     await saveProgress(progress);
   }
   if (!progress.databaseDeleted) {
+    console.log("  Removing database…");
     await runCommand([
       "wrangler",
       "d1",
@@ -269,9 +250,7 @@ export async function runUninstall(args: string[], runCommand: CommandRunner = r
 const entrypoint = process.argv[1];
 if (entrypoint !== undefined && import.meta.url === pathToFileURL(entrypoint).href) {
   runUninstall(process.argv.slice(2)).catch((error: unknown) => {
-    console.error(
-      `\nUninstall failed: ${error instanceof Error ? error.message : "Unknown error"}`
-    );
+    console.error(`\nUninstall failed: ${conciseError(error)}`);
     process.exitCode = 1;
   });
 }

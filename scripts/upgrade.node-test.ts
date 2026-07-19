@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 import { deploymentArguments, installArguments } from "./cli-options.ts";
 import { deploymentPaths, deploymentRecordFromConfig } from "./deployment-record.ts";
 import { localConfig } from "./dev.ts";
+import { statusSummary } from "./status.ts";
+import { boundedOutputChunk, conciseDiagnostic, conciseError, runCommand } from "./subprocess.ts";
 import type { ReleaseManifest } from "./upgrade.ts";
 import {
   compareSemanticVersions,
@@ -11,6 +13,8 @@ import {
   parseUpgradeOptions,
   planMigrations,
   productionUpgradeConfig,
+  readySummary,
+  upgradeSummary,
   validateReleaseManifest,
   validateRemoteTargets,
   verifyRelease
@@ -100,6 +104,56 @@ await describe("packaged upgrade", async () => {
     assert.equal(deploymentIsCurrent(manifest.version, manifest, []), true);
     assert.equal(deploymentIsCurrent("0.1.0", manifest, []), false);
     assert.equal(deploymentIsCurrent(manifest.version, manifest, [pendingMigration]), false);
+  });
+
+  await it("uses concise, user-facing upgrade and status summaries", () => {
+    const upgrade = upgradeSummary(record, "0.2.4", "0.2.5", 0);
+    assert.match(upgrade, /Database updates: none/u);
+    assert.doesNotMatch(upgrade, /account-id|database-id|kv-id|\.sql/u);
+    assert.ok(upgrade.length < 200);
+    assert.equal(readySummary("0.2.5"), "Wikimemory 0.2.5 is ready.\nDatabase: up to date.");
+    assert.equal(
+      readySummary("0.2.5", true),
+      "Wikimemory 0.2.5 is already ready.\nDatabase: up to date."
+    );
+    const status = statusSummary({
+      deployment: "scratch",
+      accountId: "account-id",
+      workerName: "scratch",
+      database: "scratch (database-id)",
+      kvNamespace: "scratch-oauth (kv-id)",
+      origin: record.origin,
+      recordedVersion: "0.2.5",
+      runningVersion: "0.2.5",
+      schemaVersion: "0004_internal_name.sql"
+    });
+    assert.equal(
+      status,
+      `Wikimemory scratch: ready\nURL: ${record.origin}\nVersion: 0.2.5\nDatabase: up to date.`
+    );
+    assert.doesNotMatch(status, /account-id|database-id|kv-id|\.sql/u);
+  });
+
+  await it("captures subprocess chatter and bounds failure diagnostics", async () => {
+    const result = await runCommand(process.execPath, [
+      "-e",
+      "process.stdout.write('x'.repeat(2000)); process.stderr.write('useful failure')"
+    ]);
+    assert.equal(result.stdout.length, 2000);
+    assert.equal(result.stderr, "useful failure");
+    assert.equal(result.exitCode, 0);
+    assert.equal(conciseDiagnostic(result, 20), "useful failure");
+    assert.equal(conciseError(new Error("x".repeat(100)), 20), `${"x".repeat(17)}...`);
+    assert.deepEqual(boundedOutputChunk("small", 10), {
+      visible: "small",
+      remaining: 5,
+      truncated: false
+    });
+    assert.deepEqual(boundedOutputChunk("too much output", 3), {
+      visible: "too",
+      remaining: 0,
+      truncated: true
+    });
   });
 
   await it("retries post-deploy verification while Cloudflare propagates a new version", async () => {

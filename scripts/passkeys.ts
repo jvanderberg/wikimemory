@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { passkeyRuntime } from "./lifecycle-runtime.ts";
 import { configuredOrigin } from "./setup.ts";
+import { conciseError } from "./subprocess.ts";
 
 const PRODUCTION_CONFIG = passkeyRuntime.config;
 const CLI_STATE = passkeyRuntime.client;
@@ -206,9 +207,7 @@ export async function runPasskeys(args: string[]): Promise<void> {
 const entrypoint = process.argv[1];
 if (entrypoint !== undefined && import.meta.url === pathToFileURL(entrypoint).href) {
   runPasskeys(process.argv.slice(2)).catch((error: unknown) => {
-    console.error(
-      `Passkey command failed: ${error instanceof Error ? error.message : "Unknown error"}`
-    );
+    console.error(`Passkey command failed: ${conciseError(error)}`);
     process.exitCode = 1;
   });
 }

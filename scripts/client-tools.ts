@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { cp, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { deploymentRecordPath, readDeploymentRecord } from "./deployment-record.ts";
+import { commandFailureMessage, runCommand } from "./subprocess.ts";
 
 type Client = "codex" | "claude";
 
@@ -11,15 +11,12 @@ function client(value: string | undefined): Client {
   throw new Error("Client must be codex or claude");
 }
 
-async function run(command: string, args: string[]): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { stdio: "inherit" });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`${command} exited with status ${code ?? "unknown"}`));
-    });
+async function run(command: string, args: string[], interactive = false): Promise<void> {
+  const result = await runCommand(command, args, {
+    ...(interactive ? { forwardLimitBytes: 4000, inheritStdin: true } : {})
   });
+  if (result.exitCode !== 0)
+    throw new Error(commandFailureMessage(`${command} client configuration`, result));
 }
 
 export async function connectClient(
@@ -31,7 +28,8 @@ export async function connectClient(
   const endpoint = `${record.origin}/mcp`;
   if (target === "codex") {
     await run("codex", ["mcp", "add", deployment, "--url", endpoint]);
-    await run("codex", ["mcp", "login", deployment, "--scopes", "memory:read,memory:write"]);
+    console.log("Complete authorization in your browser…");
+    await run("codex", ["mcp", "login", deployment, "--scopes", "memory:read,memory:write"], true);
   } else {
     await run("claude", [
       "mcp",
@@ -43,8 +41,10 @@ export async function connectClient(
       deployment,
       endpoint
     ]);
-    await run("claude", ["mcp", "login", deployment]);
+    console.log("Complete authorization in your browser…");
+    await run("claude", ["mcp", "login", deployment], true);
   }
+  console.log(`Connected ${target} to ${deployment}.`);
 }
 
 export async function installSkills(

@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import { access, mkdtemp, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
@@ -11,6 +10,14 @@ import { z } from "zod";
 import { WIKIMEMORY_VERSION } from "../src/version.ts";
 import { deploymentRecordFromConfig, writeDeploymentRecord } from "./deployment-record.ts";
 import { installedRecordPath, packageRoot, setupRuntime } from "./lifecycle-runtime.ts";
+import {
+  type CommandResult,
+  commandFailureMessage,
+  conciseError,
+  runCommand
+} from "./subprocess.ts";
+
+export { commandFailureMessage } from "./subprocess.ts";
 
 const PACKAGE_ROOT = packageRoot;
 const CONFIG_PATH = setupRuntime.config;
@@ -50,12 +57,6 @@ interface Account {
   name: string;
 }
 
-interface CommandResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
-
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 type Sleeper = (milliseconds: number) => Promise<void>;
 
@@ -74,17 +75,6 @@ function cloudflareOperation(args: string[]): string {
   if (command === "kv" && args[3] === "namespace" && args[4] === "create")
     return "KV namespace creation";
   return `Cloudflare ${command}`;
-}
-
-function conciseDiagnostic(result: CommandResult): string {
-  const raw = result.stderr.trim() || result.stdout.trim();
-  const plain = raw.replaceAll("\u001b", "").replaceAll(/\s+/gu, " ").trim();
-  if (plain === "") return `process exited with status ${result.exitCode}`;
-  return plain.length > 600 ? `${plain.slice(0, 597)}...` : plain;
-}
-
-export function commandFailureMessage(operation: string, result: CommandResult): string {
-  return `${operation} failed: ${conciseDiagnostic(result)}`;
 }
 
 async function sleep(milliseconds: number): Promise<void> {
@@ -172,43 +162,19 @@ async function run(
   input?: string,
   allowFailure = false
 ): Promise<CommandResult> {
-  const result = await new Promise<CommandResult>((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on("error", (error) => {
-      reject(error);
-    });
-    child.on("close", (code) => {
-      resolve({ stdout, stderr, exitCode: code ?? -1 });
-    });
-    child.stdin.end(input === undefined ? undefined : `${input}\n`);
-  });
+  const result = await runCommand(command, args, { ...(input === undefined ? {} : { input }) });
   if (result.exitCode !== 0 && !allowFailure)
     throw new Error(commandFailureMessage(cloudflareOperation(args), result));
   return result;
 }
 
 async function runInteractive(command: string, args: string[]): Promise<void> {
-  console.log(`\n> ${command} ${args.join(" ")}`);
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { stdio: "inherit" });
-    child.on("error", (error) => {
-      reject(error);
-    });
-    child.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`${command} exited with status ${code ?? "unknown"}`));
-    });
+  const result = await runCommand(command, args, {
+    forwardLimitBytes: 4000,
+    inheritStdin: true
   });
+  if (result.exitCode !== 0)
+    throw new Error(commandFailureMessage(cloudflareOperation(args), result));
 }
 
 export function initialConfig(options: Options, account: Account): string {
@@ -600,7 +566,6 @@ async function finalizeDeployment(options: Options): Promise<void> {
   );
   const recordPath = installedRecordPath(options.workerName);
   await writeDeploymentRecord(deploymentRecord, recordPath);
-  console.log(`\nSaved deployment record: ${recordPath}`);
   console.log(`\n${handoff(origin, secret.raw, options.workerName)}`);
 }
 
@@ -723,7 +688,7 @@ export async function runSetup(args: string[]): Promise<void> {
 const entrypoint = process.argv[1];
 if (entrypoint !== undefined && import.meta.url === pathToFileURL(entrypoint).href) {
   runSetup(process.argv.slice(2)).catch((error: unknown) => {
-    console.error(`\nSetup failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    console.error(`\nSetup failed: ${conciseError(error)}`);
     process.exitCode = 1;
   });
 }

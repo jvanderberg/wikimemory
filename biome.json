@@ -12,6 +12,7 @@
       "!**/dist",
       "!**/node_modules",
       "!**/.wrangler",
+      "!**/.wikimemory",
       "!**/coverage",
       "!package-lock.json"
     ]

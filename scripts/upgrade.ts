@@ -12,6 +12,7 @@ import {
   writeDeploymentRecord
 } from "./deployment-record.ts";
 import { packageRoot } from "./package-root.ts";
+import { type CommandResult, commandFailureMessage, runCommand } from "./subprocess.ts";
 
 const PACKAGE_ROOT = packageRoot();
 const DEPLOYMENT_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/u;
@@ -37,12 +38,6 @@ export interface UpgradeOptions {
   recordPath: string | null;
   yes: boolean;
   help: boolean;
-}
-
-interface CommandResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
 }
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -195,28 +190,21 @@ function migrationBundle(sql: string, migration: ReleaseManifest["migrations"][n
 }
 
 async function command(commandName: string, args: string[]): Promise<CommandResult> {
-  const { spawn } = await import("node:child_process");
-  return await new Promise<CommandResult>((resolve, reject) => {
-    const child = spawn(commandName, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-      process.stdout.write(chunk);
-    });
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-      process.stderr.write(chunk);
-    });
-    child.on("error", (error) => {
-      reject(error);
-    });
-    child.on("close", (code) => {
-      resolve({ stdout, stderr, exitCode: code ?? -1 });
-    });
-  });
+  return await runCommand(commandName, args);
+}
+
+export function upgradeSummary(
+  record: DeploymentRecord,
+  currentVersion: string,
+  targetVersion: string,
+  databaseUpdates: number
+): string {
+  const updates = databaseUpdates === 0 ? "none" : `${databaseUpdates} required`;
+  return `Upgrade Wikimemory “${record.workerName}” at ${record.origin}\n  Version: ${currentVersion} -> ${targetVersion}\n  Database updates: ${updates}`;
+}
+
+export function readySummary(version: string, alreadyCurrent = false): string {
+  return `Wikimemory ${version} is ${alreadyCurrent ? "already " : ""}ready.\nDatabase: up to date.`;
 }
 
 function parsedJson(stdout: string): unknown {
@@ -340,7 +328,12 @@ export async function runUpgrade(args: string[]): Promise<void> {
       command("npx", ["wrangler", "kv", "namespace", "list", ...common])
     ]);
     if ([whoami, deployments, d1, kv].some((result) => result.exitCode !== 0))
-      throw new Error("Cloudflare target preflight failed");
+      throw new Error(
+        commandFailureMessage(
+          "Cloudflare target preflight",
+          [whoami, deployments, d1, kv].find((result) => result.exitCode !== 0) ?? whoami
+        )
+      );
     const whoamiBody = z
       .object({ accounts: z.array(z.object({ id: z.string() })) })
       .parse(parsedJson(whoami.stdout));
@@ -366,7 +359,8 @@ export async function runUpgrade(args: string[]): Promise<void> {
       "--command",
       "SELECT name FROM d1_migrations ORDER BY id"
     ]);
-    if (listed.exitCode !== 0) throw new Error("Could not read installed migrations");
+    if (listed.exitCode !== 0)
+      throw new Error(commandFailureMessage("Database version check", listed));
     const query = z
       .array(z.object({ results: z.array(z.object({ name: z.string() })) }))
       .parse(parsedJson(listed.stdout));
@@ -382,15 +376,14 @@ export async function runUpgrade(args: string[]): Promise<void> {
     if (deploymentIsCurrent(current, manifest, pending)) {
       await verifyRelease(record.origin, manifest);
       await writeDeploymentRecord({ ...record, installedVersion: manifest.version }, recordPath);
-      console.log(
-        `\nWikimemory ${manifest.version} is already ready. Reconciled the local deployment record without redeploying.`
-      );
+      console.log(`\n${readySummary(manifest.version, true)}`);
       return;
     }
     await confirmUpgrade(
-      `\nWikimemory upgrade\n  Account: ${record.accountId}\n  Worker: ${record.workerName}\n  D1: ${record.databaseName} (${record.databaseId})\n  KV: ${record.kvName} (${record.kvId})\n  Origin: ${record.origin}\n  Version: ${current} -> ${manifest.version}\n  Migrations: ${pending.map((item) => item.name).join(", ") || "none"}`,
+      `\n${upgradeSummary(record, current, manifest.version, pending.length)}`,
       options.yes
     );
+    if (pending.length > 0) console.log("  Updating database…");
     for (const migration of pending) {
       const bundlePath = join(temporary, migration.name);
       const sql = await readFile(join(PACKAGE_ROOT, "migrations", migration.name), "utf8");
@@ -405,13 +398,16 @@ export async function runUpgrade(args: string[]): Promise<void> {
         "--file",
         bundlePath
       ]);
-      if (result.exitCode !== 0) throw new Error(`Migration failed: ${migration.name}`);
+      if (result.exitCode !== 0) throw new Error(commandFailureMessage("Database update", result));
     }
+    console.log("  Deploying Wikimemory…");
     const deployed = await command("npx", ["wrangler", "deploy", "--strict", ...common]);
-    if (deployed.exitCode !== 0) throw new Error("Worker deployment failed");
+    if (deployed.exitCode !== 0)
+      throw new Error(commandFailureMessage("Worker deployment", deployed));
+    console.log("  Verifying deployment…");
     await verifyRelease(record.origin, manifest);
     await writeDeploymentRecord({ ...record, installedVersion: manifest.version }, recordPath);
-    console.log(`\nWikimemory ${manifest.version} is ready. Schema: ${manifest.schemaVersion}`);
+    console.log(`\n${readySummary(manifest.version)}`);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
