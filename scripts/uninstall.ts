@@ -30,7 +30,7 @@ interface UninstallProgress {
   databaseDeleted: boolean;
 }
 
-interface CommandResult {
+export interface CommandResult {
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -166,8 +166,10 @@ async function saveProgress(progress: UninstallProgress): Promise<void> {
   await writeFile(UNINSTALL_STATE_PATH, `${JSON.stringify(progress, null, 2)}\n`, "utf8");
 }
 
-async function main(): Promise<void> {
-  const options = parseUninstallOptions(process.argv.slice(2));
+type CommandRunner = (args: string[], allowFailure?: boolean) => Promise<CommandResult>;
+
+export async function runUninstall(args: string[], runCommand: CommandRunner = run): Promise<void> {
+  const options = parseUninstallOptions(args);
   if (options.help) {
     console.log(
       "Usage: npm run uninstall                 # preview only\n       npm run uninstall -- --apply       # prompt for exact Worker name\n       npm run uninstall -- --apply --confirm WORKER_NAME"
@@ -186,7 +188,7 @@ async function main(): Promise<void> {
   const progress = await loadProgress(targets);
   await saveProgress(progress);
   if (!progress.workerDeleted) {
-    const probe = await run(
+    const probe = await runCommand(
       [
         "wrangler",
         "deployments",
@@ -200,7 +202,14 @@ async function main(): Promise<void> {
       true
     );
     if (deploymentListIndicatesExisting(probe)) {
-      await run(["wrangler", "delete", targets.workerName, "--force", "--config", CONFIG_PATH]);
+      await runCommand([
+        "wrangler",
+        "delete",
+        targets.workerName,
+        "--force",
+        "--config",
+        CONFIG_PATH
+      ]);
     } else {
       console.log(
         `\nWorker ${targets.workerName} is already absent; continuing partial-install cleanup.`
@@ -210,7 +219,7 @@ async function main(): Promise<void> {
     await saveProgress(progress);
   }
   if (!progress.kvDeleted) {
-    await run([
+    await runCommand([
       "wrangler",
       "kv",
       "namespace",
@@ -225,7 +234,7 @@ async function main(): Promise<void> {
     await saveProgress(progress);
   }
   if (!progress.databaseDeleted) {
-    await run([
+    await runCommand([
       "wrangler",
       "d1",
       "delete",
@@ -251,7 +260,7 @@ async function main(): Promise<void> {
 
 const entrypoint = process.argv[1];
 if (entrypoint !== undefined && import.meta.url === pathToFileURL(entrypoint).href) {
-  main().catch((error: unknown) => {
+  runUninstall(process.argv.slice(2)).catch((error: unknown) => {
     console.error(
       `\nUninstall failed: ${error instanceof Error ? error.message : "Unknown error"}`
     );

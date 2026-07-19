@@ -14,7 +14,8 @@
     "db:migrate:production": "node --experimental-strip-types scripts/migrate-remote.ts",
     "deploy": "wrangler deploy --config wrangler.production.jsonc",
     "test": "vitest run && npm run test:installer",
-    "test:installer": "node --experimental-strip-types --test scripts/setup.node-test.ts",
+    "test:coverage": "vitest run --coverage.enabled",
+    "test:installer": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include=scripts/setup.ts --test-coverage-include=scripts/uninstall.ts --test-coverage-lines=50 --test-coverage-branches=70 --test-coverage-functions=60 --test scripts/setup.node-test.ts",
     "test:passkey": "node --experimental-strip-types scripts/passkey-e2e.ts",
     "test:watch": "vitest",
     "smoke:local": "node --experimental-strip-types scripts/smoke-local.ts",
@@ -22,7 +23,7 @@
     "format": "biome check --write --linter-enabled=false .",
     "format:check": "biome ci --linter-enabled=false .",
     "lint": "npm run format:check && eslint .",
-    "check": "npm run typecheck && npm run lint && npm test"
+    "check": "npm run typecheck && npm run lint && npm test && npm run test:coverage"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "0.8.2",
@@ -43,13 +44,17 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "@vitest/browser-playwright": "4.1.10",
+    "@vitest/coverage-istanbul": "4.1.10",
     "eslint": "9.39.2",
     "eslint-plugin-react-hooks": "7.1.1",
+    "playwright": "1.61.1",
     "playwright-core": "^1.61.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.53.1",
     "vite": "^8.1.5",
     "vitest": "4.1.10",
+    "vitest-browser-react": "2.2.0",
     "wrangler": "4.112.0"
   },
   "engines": {

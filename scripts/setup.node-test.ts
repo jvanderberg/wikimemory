@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
 import { describe, it } from "node:test";
 import {
   bindingProperty,
@@ -9,10 +13,31 @@ import {
   initialConfig,
   migrationBundle,
   parseOptions,
+  runSetup,
   withWebAssets,
   workersDevRegistrationRequired
 } from "./setup.ts";
-import { parseUninstallOptions, resolveUninstallTargets } from "./uninstall.ts";
+import { parseUninstallOptions, resolveUninstallTargets, runUninstall } from "./uninstall.ts";
+
+const productionConfig = `${JSON.stringify({
+  name: "my-memory",
+  account_id: "account",
+  vars: { APP_BASE_URL: "https://my-memory.owner.workers.dev" },
+  d1_databases: [{ binding: "DB", database_name: "db", database_id: "db-id" }],
+  kv_namespaces: [{ binding: "OAUTH_KV", id: "kv-id" }]
+})}\n`;
+
+async function inTemporaryDirectory(run: () => Promise<void>): Promise<void> {
+  const previous = process.cwd();
+  const directory = await mkdtemp(join(tmpdir(), "wikimemory-cli-test-"));
+  try {
+    process.chdir(directory);
+    await run();
+  } finally {
+    process.chdir(previous);
+    await rm(directory, { recursive: true, force: true });
+  }
+}
 
 await describe("guided installer", async () => {
   await it("parses account, resume, and resource options strictly", () => {
@@ -143,5 +168,57 @@ await describe("guided installer", async () => {
       kvNamespaceId: "kv-id"
     });
     assert.throws(() => resolveUninstallTargets(`{"name":"my-memory"}`));
+  });
+
+  await it("runs setup help and fails closed for incomplete lifecycle state", async () => {
+    await runSetup(["--help"]);
+    await inTemporaryDirectory(async () => {
+      await assert.rejects(runSetup(["--resume", "--yes"]), /required for --resume/u);
+      await assert.rejects(runSetup(["--recover", "--yes"]), /required for recovery/u);
+      await writeFile("wrangler.production.jsonc", "{}\n", "utf8");
+      await assert.rejects(runSetup(["--yes"]), /already exists/u);
+    });
+  });
+
+  await it("runs uninstall help, preview, and exact-name protection without cloud changes", async () => {
+    await runUninstall(["--help"]);
+    await inTemporaryDirectory(async () => {
+      await writeFile("wrangler.production.jsonc", productionConfig, "utf8");
+      await runUninstall([]);
+      await assert.rejects(
+        runUninstall(["--apply", "--confirm", "wrong-worker"]),
+        /Confirmation did not exactly match/u
+      );
+    });
+  });
+
+  await it("executes the exact uninstall sequence and removes only installer state", async () => {
+    await inTemporaryDirectory(async () => {
+      await writeFile("wrangler.production.jsonc", productionConfig, "utf8");
+      await writeFile(".wikimemory-installer.json", "{}\n", "utf8");
+      await writeFile("preserve-me.txt", "user data\n", "utf8");
+      const commands: string[][] = [];
+      await runUninstall(["--apply", "--confirm", "my-memory"], (args) => {
+        commands.push(args);
+        return Promise.resolve({
+          stdout: args[1] === "deployments" ? "[]" : "",
+          stderr: "",
+          exitCode: 0
+        });
+      });
+      assert.deepEqual(
+        commands.map((args) => args.slice(0, 4)),
+        [
+          ["wrangler", "deployments", "list", "--name"],
+          ["wrangler", "delete", "my-memory", "--force"],
+          ["wrangler", "kv", "namespace", "delete"],
+          ["wrangler", "d1", "delete", "db"]
+        ]
+      );
+      await assert.rejects(access("wrangler.production.jsonc"));
+      await assert.rejects(access(".wikimemory-installer.json"));
+      await assert.rejects(access(".wikimemory-uninstall.json"));
+      assert.equal(await readFile("preserve-me.txt", "utf8"), "user data\n");
+    });
   });
 });

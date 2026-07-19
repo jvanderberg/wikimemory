@@ -22,5 +22,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["web/src/**/*.ts", "web/src/**/*.tsx"]
+  "include": ["web/src/**/*.ts", "web/src/**/*.tsx", "web/test/**/*.ts", "web/test/**/*.tsx"]
 }

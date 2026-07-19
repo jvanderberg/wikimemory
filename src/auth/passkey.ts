@@ -4,6 +4,8 @@ import type {
   AuthenticationResponseJSON,
   AuthenticatorTransportFuture,
   RegistrationResponseJSON,
+  VerifiedAuthenticationResponse,
+  VerifiedRegistrationResponse,
   WebAuthnCredential
 } from "@simplewebauthn/server";
 import {
@@ -123,6 +125,12 @@ export interface WebSessionSummary {
 type RelyingPartyEnv = Pick<Env, "APP_BASE_URL">;
 type RegistrationEnv = Pick<Env, "DB" | "APP_BASE_URL" | "SETUP_TOKEN_HASH">;
 type DatabaseEnv = Pick<Env, "DB">;
+type RegistrationVerifier = (
+  options: Parameters<typeof verifyRegistrationResponse>[0]
+) => Promise<VerifiedRegistrationResponse>;
+type AuthenticationVerifier = (
+  options: Parameters<typeof verifyAuthenticationResponse>[0]
+) => Promise<VerifiedAuthenticationResponse>;
 
 function relyingParty(env: RelyingPartyEnv): { origin: string; rpID: string } {
   if (env.APP_BASE_URL === undefined) throw new Error("APP_BASE_URL is required");
@@ -347,7 +355,11 @@ export async function setupOptions(request: Request, env: RegistrationEnv): Prom
   return Response.json({ flowId, options });
 }
 
-export async function setupVerify(request: Request, env: Env): Promise<Response> {
+export async function setupVerify(
+  request: Request,
+  env: Env,
+  verify: RegistrationVerifier = verifyRegistrationResponse
+): Promise<Response> {
   const body = SETUP_VERIFY_SCHEMA.parse(await request.json());
   const flow = await consumeChallenge(env, body.flowId, "setup");
   if (flow === null)
@@ -371,7 +383,7 @@ export async function setupVerify(request: Request, env: Env): Promise<Response>
   const payload = SETUP_PAYLOAD_SCHEMA.parse(JSON.parse(flow.payload_json ?? "null"));
   const { origin, rpID } = relyingParty(env);
   const registrationResponse = registrationResponseJson(body.response);
-  const verification = await verifyRegistrationResponse({
+  const verification = await verify({
     response: registrationResponse,
     expectedChallenge: flow.challenge,
     expectedOrigin: origin,
@@ -475,7 +487,8 @@ export async function registrationOptions(
 
 export async function registrationVerify(
   request: Request,
-  env: RegistrationEnv
+  env: RegistrationEnv,
+  verify: RegistrationVerifier = verifyRegistrationResponse
 ): Promise<Response> {
   const body = SETUP_VERIFY_SCHEMA.parse(await request.json());
   const flow = await consumeChallenge(env, body.flowId, "registration");
@@ -495,7 +508,7 @@ export async function registrationVerify(
       { status: 403 }
     );
   const { origin, rpID } = relyingParty(env);
-  const verification = await verifyRegistrationResponse({
+  const verification = await verify({
     response: registrationResponseJson(body.response),
     expectedChallenge: flow.challenge,
     expectedOrigin: origin,
@@ -609,7 +622,11 @@ export async function passkeyAuthorizationOptions(request: Request, env: Env): P
   });
 }
 
-export async function verifyPasskeyAuthorization(request: Request, env: Env): Promise<Response> {
+export async function verifyPasskeyAuthorization(
+  request: Request,
+  env: Env,
+  verify: AuthenticationVerifier = verifyAuthenticationResponse
+): Promise<Response> {
   const body = AUTH_VERIFY_SCHEMA.parse(await request.json());
   const mcpFlow = await consumeChallenge(env, body.flowId, "mcp");
   const flowKind = mcpFlow === null ? "web" : "mcp";
@@ -633,7 +650,7 @@ export async function verifyPasskeyAuthorization(request: Request, env: Env): Pr
   };
   const { origin, rpID } = relyingParty(env);
   const authenticationResponse = authenticationResponseJson(body.response);
-  const verification = await verifyAuthenticationResponse({
+  const verification = await verify({
     response: authenticationResponse,
     expectedChallenge: flow.challenge,
     expectedOrigin: origin,

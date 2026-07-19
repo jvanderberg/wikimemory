@@ -3,7 +3,12 @@ import type { DomainError } from "../src/domain/errors";
 import { ExportService } from "../src/domain/export-service";
 import { isRecord } from "../src/domain/guards";
 import { MemoryService } from "../src/domain/memory-service";
-import type { ActorContext, IngestRequest, OwnerContext } from "../src/domain/types";
+import type {
+  ActorContext,
+  IngestRequest,
+  OwnerContext,
+  RestoreRequest
+} from "../src/domain/types";
 
 const testEnv = env;
 
@@ -340,14 +345,38 @@ describe("MemoryService", () => {
       body: "Second body",
       metadata: { set: { status: "done" } }
     });
-    const restored = await service.restore(actor, {
+    const restoreRequest: RestoreRequest = {
       operationId: "restore-3",
       reason: "return to the first state",
       slug: "restorable",
       targetRevisionId: first.revisionId,
       expectedRevisionId: second.revisionId
-    });
+    };
+    const restored = await service.restore(actor, restoreRequest);
     expect(restored.revisionNumber).toBe(3);
+
+    const replay = await service.restore(actor, restoreRequest);
+    expect(replay).toMatchObject({
+      documentId: restored.documentId,
+      revisionId: restored.revisionId,
+      revisionNumber: restored.revisionNumber,
+      idempotentReplay: true
+    });
+    await expect(service.history(actor, "restorable")).resolves.toHaveLength(3);
+    await expect(
+      service.restore(actor, { ...restoreRequest, reason: "different operation payload" })
+    ).rejects.toMatchObject({ code: "idempotency_mismatch" } satisfies Partial<DomainError>);
+    await expect(
+      service.restore(actor, { ...restoreRequest, operationId: "restore-stale" })
+    ).rejects.toMatchObject({ code: "revision_conflict" } satisfies Partial<DomainError>);
+    await expect(
+      service.restore(actor, {
+        ...restoreRequest,
+        operationId: "restore-missing-expected",
+        expectedRevisionId: "missing-revision"
+      })
+    ).rejects.toMatchObject({ code: "revision_conflict" } satisfies Partial<DomainError>);
+
     const current = await service.get(actor, "restorable");
     expect(current.body).toBe("First body");
     expect(current.restoredFromRevisionId).toBe(first.revisionId);

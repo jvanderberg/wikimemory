@@ -16,7 +16,8 @@ Current scripts:
 
 ```sh
 npm run dev             # migrate/seed local D1, start Worker and web app
-npm test                # domain + Workers/D1 integration tests
+npm test                # Worker, React, and lifecycle CLI tests
+npm run test:coverage   # instrument source locally and enforce coverage thresholds
 npm run smoke:local     # OAuth/PKCE, MCP, export, restore, purge, and revoke smoke
 npm run test:passkey    # real WebAuthn registration/login using Chrome virtual authenticator
 npm run format          # apply Biome formatting and import organization
@@ -26,8 +27,7 @@ npm run lint
 npm run check           # typecheck + Biome/ESLint + all automated tests
 ```
 
-`dev:reset`, a standalone full MCP contract suite, and automated browser E2E are
-Phase 5 work. Until then, reset only the explicit repository-local
+`dev:reset` and expanded browser E2E remain later work. Until then, reset only the explicit repository-local
 `.wrangler/state` path manually after verifying it, and use the smoke script plus
 manual web checks.
 
@@ -60,17 +60,38 @@ Cloudflare's Vitest Workers pool applies real migrations to isolated local D1. T
 cover constraints, triggers, FTS5, atomic snapshot writes, cross-workspace isolation,
 conflict races, idempotency, restore, guarded purge, and export ordering.
 
+`npm run test:coverage` uses test-time Istanbul instrumentation and writes an ignored
+HTML report to `coverage/`. Vitest runs two projects in the same coverage process:
+Workers/D1 integration under workerd and React component tests in real headless Chrome
+through the Playwright provider.
+
+The release gate protects global floors of 85% statements, 78% branches, 88% functions,
+and 85% lines. Independent floors prevent well-covered code from hiding regressions in
+auth, domain, MCP, Worker web, or React code. The current floors are recorded in
+`vitest.config.ts` and should be ratcheted upward as each tranche lands; never lower them
+merely to admit untested code.
+
+The installer and uninstall lifecycle have a separate Node coverage gate: 50% lines,
+70% branches, and 60% functions across `scripts/setup.ts` and `scripts/uninstall.ts`.
+The destructive uninstall sequence runs against an injected fake command runner in a
+temporary directory, validating Cloudflare command order and local cleanup without
+changing remote resources.
+
+The browser project uses the installed stable Google Chrome channel. Install Chrome
+before running the full check on a fresh development machine.
+
 ### MCP contract
 
 A programmatic client connects to the local Streamable HTTP endpoint. Tests cover
 initialization, tools/resources, discovery challenges, scopes, OAuth, structured
 content, errors, and output limits. An MCP inspector recipe supports exploratory use.
 
-### Planned browser end-to-end
+### Browser interaction coverage
 
-Browser tests will use the local identity chooser and cover Now, search, browse, history,
-connection guidance, export, restore preview/apply, reauthentication
-timestamp enforcement, and purge confirmation.
+Real-Chrome component tests cover local and production login states, MCP authorization,
+passkey setup, browse, search, recent history, document rendering, and credential,
+grant, and browser-session management. Full browser/WebAuthn E2E remains available via
+`npm run test:passkey` for pre-release validation.
 
 ### Agent behavior
 

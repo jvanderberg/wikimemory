@@ -1,3 +1,4 @@
+import type { TokenSummary } from "@cloudflare/workers-oauth-provider";
 import { z } from "zod";
 import { DomainError } from "../domain/errors";
 import type { Env } from "../env";
@@ -20,11 +21,17 @@ const PROPS_SCHEMA = z.object({
 const LABEL_SCHEMA = z.object({ label: z.string().trim().min(1).max(80) });
 const REVOKE_SCHEMA = z.object({ credentialRef: z.string().regex(/^[a-f0-9]{64}$/u) });
 
-async function authorize(request: Request, env: Env): Promise<{ authenticatedAt: string }> {
+type TokenUnwrapper = (token: string) => Promise<TokenSummary<unknown> | null>;
+
+async function authorize(
+  request: Request,
+  env: Env,
+  unwrapToken: TokenUnwrapper
+): Promise<{ authenticatedAt: string }> {
   const header = request.headers.get("authorization") ?? "";
   const match = /^Bearer ([^\s]+)$/u.exec(header);
   if (match?.[1] === undefined) throw new DomainError("forbidden", "A bearer token is required");
-  const token = await env.OAUTH_PROVIDER.unwrapToken(match[1]);
+  const token = await unwrapToken(match[1]);
   if (
     token === null ||
     token.userId !== PASSKEY_OWNER_ID ||
@@ -49,8 +56,13 @@ async function authorize(request: Request, env: Env): Promise<{ authenticatedAt:
   return { authenticatedAt };
 }
 
-export async function handlePasskeyApi(request: Request, env: Env): Promise<Response> {
-  await authorize(request, env);
+export async function handlePasskeyApi(
+  request: Request,
+  env: Env,
+  unwrapToken: TokenUnwrapper = async (token) =>
+    await env.OAUTH_PROVIDER.unwrapToken<unknown>(token)
+): Promise<Response> {
+  await authorize(request, env, unwrapToken);
   if (request.method === "GET") return Response.json({ passkeys: await listPasskeys(env.DB) });
   if (request.method === "POST") {
     const { label } = LABEL_SCHEMA.parse(await request.json());

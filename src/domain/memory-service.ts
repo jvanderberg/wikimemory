@@ -825,22 +825,22 @@ export class MemoryService {
   async restore(actor: ActorContext, request: RestoreRequest): Promise<IngestResult> {
     requireScope(actor, "memory:admin");
     const readActor: ActorContext = { ...actor, scopes: new Set<MemoryScope>(["memory:read"]) };
-    const [current, target] = await Promise.all([
-      this.get(readActor, request.slug),
-      this.get(readActor, request.slug, request.targetRevisionId)
-    ]);
-    if (current.revisionId !== request.expectedRevisionId) {
+    let base: DocumentSnapshot;
+    try {
+      base = await this.get(readActor, request.slug, request.expectedRevisionId);
+    } catch (error) {
+      if (!(error instanceof DomainError) || error.code !== "not_found") throw error;
+      const current = await this.get(readActor, request.slug);
       throw new DomainError("revision_conflict", "Expected revision is stale", {
         currentRevisionId: current.revisionId,
         currentRevisionNumber: current.revisionNumber
       });
     }
+    const target = await this.get(readActor, request.slug, request.targetRevisionId);
 
-    const currentMetadata = metadataMap(current.metadata);
+    const currentMetadata = metadataMap(base.metadata);
     const targetMetadata = metadataMap(target.metadata);
-    const currentCardinalities = new Map(
-      current.metadata.map((item) => [item.key, item.cardinality])
-    );
+    const currentCardinalities = new Map(base.metadata.map((item) => [item.key, item.cardinality]));
     const targetCardinalities = new Map(
       target.metadata.map((item) => [item.key, item.cardinality])
     );
@@ -854,7 +854,7 @@ export class MemoryService {
       else throw new DomainError("internal_error", `metadata cardinality missing for ${key}`);
     }
 
-    const currentExplicit = current.links
+    const currentExplicit = base.links
       .filter((item) => item.origin === "explicit")
       .map(({ kind, targetSlug }) => ({ kind, targetSlug }));
     const targetExplicit = target.links

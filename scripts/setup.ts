@@ -597,8 +597,8 @@ async function recover(options: Options): Promise<void> {
   console.log(`\n${handoff(origin, secret.raw)}`);
 }
 
-async function main(): Promise<void> {
-  const options = parseOptions(process.argv.slice(2));
+export async function runSetup(args: string[]): Promise<void> {
+  const options = parseOptions(args);
   if (options.help) {
     console.log(usage());
     return;
@@ -610,7 +610,7 @@ async function main(): Promise<void> {
 
 const entrypoint = process.argv[1];
 if (entrypoint !== undefined && import.meta.url === pathToFileURL(entrypoint).href) {
-  main().catch((error: unknown) => {
+  runSetup(process.argv.slice(2)).catch((error: unknown) => {
     console.error(`\nSetup failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     process.exitCode = 1;
   });

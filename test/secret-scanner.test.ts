@@ -28,4 +28,10 @@ describe("secret scanner", () => {
     const findings = await scanSecrets({ body: providerToken });
     expect(findings.map((finding) => finding.category)).toEqual(["provider_token"]);
   });
+
+  it("deduplicates repeated copies of the same candidate within one field", async () => {
+    const fake = "AKIAIOSFODNN7EXAMPLE";
+    const findings = await scanSecrets({ body: `${fake}\n${fake}` });
+    expect(findings).toHaveLength(1);
+  });
 });

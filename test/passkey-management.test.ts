@@ -71,6 +71,14 @@ describe("passkey management", () => {
       label: "Phone"
     });
     await expect(registrationToken(env.DB, "too-short")).resolves.toBeNull();
+
+    const expiredRaw = "expired-registration-token-with-32-characters";
+    await env.DB.prepare(`INSERT INTO passkey_registration_tokens
+      (token_hash, principal_id, label, expires_at, created_at)
+      VALUES (?, ?, 'Expired', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')`)
+      .bind(await sha256(expiredRaw), PASSKEY_OWNER_ID)
+      .run();
+    await expect(registrationToken(env.DB, expiredRaw)).resolves.toBeNull();
   });
 
   it("requires authentication from the last five minutes", () => {
@@ -83,5 +91,25 @@ describe("passkey management", () => {
     expect(() => {
       requireRecentPasskeyAuthentication("not-a-date");
     }).toThrow("five minutes");
+    expect(() => {
+      requireRecentPasskeyAuthentication(new Date(Date.now() + 61_000).toISOString());
+    }).toThrow("five minutes");
+  });
+
+  it("rejects invalid labels and unknown credential references", async () => {
+    await expect(createRegistrationToken(env.DB, "   ")).rejects.toThrow();
+    await expect(createRegistrationToken(env.DB, "x".repeat(81))).rejects.toThrow();
+    await expect(revokePasskey(env.DB, "invalid")).rejects.toMatchObject({
+      code: "validation_failed"
+    });
+    await env.DB.prepare(`INSERT INTO passkey_credentials
+      (credential_id, principal_id, public_key, counter, transports_json, device_type, backed_up, created_at, label)
+      VALUES ('credential-three', ?, 'public-key-three', 0, '[]', 'singleDevice', 0,
+              '2026-07-19T00:00:02Z', 'Spare')`)
+      .bind(PASSKEY_OWNER_ID)
+      .run();
+    await expect(revokePasskey(env.DB, "f".repeat(64))).rejects.toMatchObject({
+      code: "not_found"
+    });
   });
 });

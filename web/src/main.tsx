@@ -297,7 +297,7 @@ function LocalAuthorization(): React.JSX.Element {
 }
 
 function Registration({ recovery }: { recovery: boolean }): React.JSX.Element {
-  const token = decodeURIComponent(location.hash.slice(1));
+  const [token] = useState(() => decodeURIComponent(location.hash.slice(1)));
   const [label, setLabel] = useState(recovery ? "Primary passkey" : "Backup passkey");
   const [status, setStatus] = useState("");
   useEffect(() => {
@@ -683,7 +683,7 @@ function AuthenticatedApp(): React.JSX.Element {
   return <Shell>{page}</Shell>;
 }
 
-function App(): React.JSX.Element {
+export function App(): React.JSX.Element {
   if (location.pathname === "/login") return <Login />;
   if (location.pathname === "/local-authorize") return <LocalAuthorization />;
   if (location.pathname === "/setup") return <Registration recovery />;
@@ -692,9 +692,10 @@ function App(): React.JSX.Element {
 }
 
 const root = document.getElementById("root");
-if (root === null) throw new Error("React root is missing");
-createRoot(root).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-);
+if (root !== null) {
+  createRoot(root).render(
+    <StrictMode>
+      <App />
+    </StrictMode>
+  );
+}
