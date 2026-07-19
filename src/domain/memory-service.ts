@@ -66,6 +66,52 @@ const METADATA_KEY = /^[a-z][a-z0-9_]{0,63}$/;
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+const TRACKING_PARAMS = new Set([
+  "gclid",
+  "fbclid",
+  "msclkid",
+  "yclid",
+  "igshid",
+  "mc_cid",
+  "mc_eid",
+  "_ga"
+]);
+
+/**
+ * Canonicalize a source URL so the same document ingested with different tracking
+ * parameters resolves to one page. Returns the input unchanged when it is not a
+ * parseable absolute URL, so non-URL provenance values still round-trip.
+ */
+export function normalizeSourceUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return value.trim();
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return value.trim();
+  url.hash = "";
+  url.hostname = url.hostname.toLowerCase();
+  if (
+    (url.protocol === "http:" && url.port === "80") ||
+    (url.protocol === "https:" && url.port === "443")
+  ) {
+    url.port = "";
+  }
+  const kept = [...url.searchParams.entries()]
+    .filter(([key]) => {
+      const lower = key.toLowerCase();
+      return !lower.startsWith("utm_") && !TRACKING_PARAMS.has(lower);
+    })
+    .sort(([a], [b]) => a.localeCompare(b));
+  url.search = "";
+  for (const [key, entry] of kept) url.searchParams.append(key, entry);
+  if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
+    url.pathname = url.pathname.replace(/\/+$/, "");
+  }
+  return url.toString();
+}
+
 function requireScope(
   actor: ActorContext,
   scope: "memory:read" | "memory:write" | "memory:admin"
@@ -118,7 +164,10 @@ function applyMetadataPatch(current: MetadataValue[], request: IngestRequest): M
   const cardinalities = new Map(current.map((item) => [item.key, item.cardinality]));
   for (const [key, value] of Object.entries(request.metadata?.set ?? {})) {
     if (!METADATA_KEY.test(key))
-      throw new DomainError("validation_failed", `invalid metadata key ${key}`);
+      throw new DomainError(
+        "validation_failed",
+        `invalid metadata key ${key}; keys must be lowercase snake_case matching ${METADATA_KEY.source}`
+      );
     if (MULTI_KEYS.has(key) || cardinalities.get(key) === "multi") {
       throw new DomainError("validation_failed", `metadata key ${key} is multivalued`);
     }
@@ -126,13 +175,16 @@ function applyMetadataPatch(current: MetadataValue[], request: IngestRequest): M
       map.delete(key);
       cardinalities.delete(key);
     } else {
-      map.set(key, new Set([value]));
+      map.set(key, new Set([key === "source_url" ? normalizeSourceUrl(value) : value]));
       cardinalities.set(key, "singleton");
     }
   }
   for (const [key, patch] of Object.entries(request.metadata?.multi ?? {})) {
     if (!METADATA_KEY.test(key))
-      throw new DomainError("validation_failed", `invalid metadata key ${key}`);
+      throw new DomainError(
+        "validation_failed",
+        `invalid metadata key ${key}; keys must be lowercase snake_case matching ${METADATA_KEY.source}`
+      );
     if (SINGLETON_KEYS.has(key) || cardinalities.get(key) === "singleton") {
       throw new DomainError("validation_failed", `metadata key ${key} is singleton`);
     }
@@ -355,11 +407,11 @@ export class MemoryService {
        FROM documents d
        JOIN current_revisions r ON r.doc_id = d.id
        JOIN revision_metadata rm ON rm.workspace_id = d.workspace_id
-         AND rm.revision_id = r.id AND rm.key = 'source_url' AND rm.value = ?
+         AND rm.revision_id = r.id AND rm.key = 'source_url' AND rm.value IN (?, ?)
        WHERE d.workspace_id = ?
        ORDER BY d.slug LIMIT ?`
       )
-      .bind(sourceUrl, actor.workspaceId, bounded)
+      .bind(normalizeSourceUrl(sourceUrl), sourceUrl.trim(), actor.workspaceId, bounded)
       .all<{
         document_id: string;
         revision_id: string;
@@ -499,6 +551,7 @@ export class MemoryService {
            AND NOT EXISTS (
              SELECT 1 FROM revision_links rl JOIN current_revisions sr ON sr.id = rl.revision_id
              WHERE rl.workspace_id = d.workspace_id AND (rl.target_document_id = d.id OR sr.doc_id = d.id)
+               AND (rl.target_document_id IS NULL OR rl.target_document_id != sr.doc_id)
            )
          ORDER BY d.slug LIMIT ?`
         )
@@ -586,6 +639,16 @@ export class MemoryService {
       if (request.type !== undefined && request.type !== current.type) {
         throw new DomainError("validation_failed", "Document type is immutable");
       }
+      if (request.expectedRevisionId === undefined) {
+        throw new DomainError(
+          "revision_conflict",
+          "expectedRevisionId is required when revising an existing document",
+          {
+            currentRevisionId: current.revisionId,
+            currentRevisionNumber: current.revisionNumber
+          }
+        );
+      }
       if (request.expectedRevisionId !== current.revisionId) {
         throw new DomainError("revision_conflict", "Expected revision is stale", {
           currentRevisionId: current.revisionId,
@@ -638,6 +701,12 @@ export class MemoryService {
       if (target !== null) resolved.set(slug, target.id);
     }
     for (const link of explicit) {
+      if (link.targetSlug === request.slug) {
+        throw new DomainError(
+          "validation_failed",
+          `Explicit link target ${link.targetSlug} cannot be the source document`
+        );
+      }
       if (!resolved.has(link.targetSlug)) {
         throw new DomainError(
           "validation_failed",

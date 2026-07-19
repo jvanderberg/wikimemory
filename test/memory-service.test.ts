@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import type { DomainError } from "../src/domain/errors";
 import { ExportService } from "../src/domain/export-service";
 import { isRecord } from "../src/domain/guards";
-import { MemoryService } from "../src/domain/memory-service";
+import { MemoryService, normalizeSourceUrl } from "../src/domain/memory-service";
 import type {
   ActorContext,
   IngestRequest,
@@ -501,5 +501,134 @@ describe("MemoryService", () => {
     expect(markdown).toContain("Current exported body");
     expect(markdown).not.toContain("First historical body");
     expect(markdown).not.toContain("purged-export");
+  });
+
+  it("passes non-URL and non-http provenance values through normalization untouched", () => {
+    // Values that are not parseable absolute http(s) URLs must round-trip unchanged,
+    // so non-URL provenance (ISBNs, internal identifiers) survives ingest.
+    expect(normalizeSourceUrl("  not a url at all  ")).toBe("not a url at all");
+    expect(normalizeSourceUrl("isbn:978-0131103627")).toBe("isbn:978-0131103627");
+    expect(normalizeSourceUrl("mailto:someone@example.test")).toBe("mailto:someone@example.test");
+    expect(normalizeSourceUrl("http://example.com:80/a/")).toBe("http://example.com/a");
+    expect(normalizeSourceUrl("https://example.com:443/a")).toBe("https://example.com/a");
+    expect(normalizeSourceUrl("https://example.com/")).toBe("https://example.com/");
+    expect(normalizeSourceUrl("https://example.com/a?b=2&a=1")).toBe(
+      "https://example.com/a?a=1&b=2"
+    );
+  });
+
+  it("rejects explicit self-referential links and keeps self-linked pages orphaned", async () => {
+    const { actor, service } = await fixture("self-link");
+    const created = await service.ingest(actor, {
+      operationId: "self-link-1",
+      reason: "create a page with no links",
+      slug: "self-linker",
+      type: "project",
+      title: "Self linker",
+      summary: "Page used to prove self-edges are refused.",
+      body: "No outbound references here."
+    });
+
+    await expect(
+      service.link(actor, {
+        operationId: "self-link-2",
+        reason: "attempt a self-supersede",
+        sourceSlug: "self-linker",
+        expectedRevisionId: created.revisionId,
+        action: "add",
+        link: { kind: "supersedes", targetSlug: "self-linker" }
+      })
+    ).rejects.toMatchObject({ code: "validation_failed" } satisfies Partial<DomainError>);
+
+    // The page must still be reported as an orphan; a self-edge must never satisfy the rule.
+    const lint = await service.lint(actor);
+    expect(lint).toContainEqual(expect.objectContaining({ kind: "orphan", slug: "self-linker" }));
+  });
+
+  it("requires an explicit expected revision when revising an existing document", async () => {
+    const { actor, service } = await fixture("expected-revision");
+    await service.ingest(actor, {
+      operationId: "expected-1",
+      reason: "create the page",
+      slug: "guarded-page",
+      type: "note",
+      title: "Guarded page",
+      body: "Original body"
+    });
+
+    await expect(
+      service.ingest(actor, {
+        operationId: "expected-2",
+        reason: "attempt a blind overwrite",
+        slug: "guarded-page",
+        body: "Clobbered body"
+      })
+    ).rejects.toMatchObject({
+      code: "revision_conflict",
+      message: "expectedRevisionId is required when revising an existing document"
+    } satisfies Partial<DomainError>);
+
+    const snapshot = await service.get(actor, "guarded-page");
+    expect(snapshot.body).toBe("Original body");
+  });
+
+  it("canonicalizes source URLs so tracking parameters resolve to one page", async () => {
+    const { actor, service } = await fixture("source-url");
+    await service.ingest(actor, {
+      operationId: "source-url-1",
+      reason: "store a source with tracking noise",
+      slug: "canonical-source",
+      type: "source",
+      title: "Canonical source",
+      summary: "Source stored with a tracking parameter.",
+      body: "Body of the source document.",
+      metadata: {
+        set: { source_url: "https://Example.COM/docs/guide/?utm_source=news&gclid=xyz&page=2#frag" }
+      }
+    });
+
+    const snapshot = await service.get(actor, "canonical-source");
+    expect(snapshot.metadata).toContainEqual(
+      expect.objectContaining({ key: "source_url", value: "https://example.com/docs/guide?page=2" })
+    );
+
+    for (const lookup of [
+      "https://example.com/docs/guide?page=2",
+      "https://example.com/docs/guide/?page=2&utm_campaign=spring",
+      "https://Example.com/docs/guide?page=2#other"
+    ]) {
+      const hits = await service.recallBySourceUrl(actor, lookup);
+      expect(hits.map(({ slug }) => slug)).toEqual(["canonical-source"]);
+    }
+
+    const miss = await service.recallBySourceUrl(actor, "https://example.com/docs/other");
+    expect(miss).toEqual([]);
+  });
+
+  it("explains the required format when a metadata key is malformed", async () => {
+    const { actor, service } = await fixture("metadata-key");
+    await expect(
+      service.ingest(actor, {
+        operationId: "metadata-key-1",
+        reason: "use a camelCase metadata key",
+        slug: "metadata-key-page",
+        type: "source",
+        title: "Metadata key page",
+        body: "Body",
+        metadata: { set: { sourceUrl: "https://example.com/a" } }
+      })
+    ).rejects.toMatchObject({ code: "validation_failed" } satisfies Partial<DomainError>);
+
+    await expect(
+      service.ingest(actor, {
+        operationId: "metadata-key-2",
+        reason: "use a camelCase metadata key",
+        slug: "metadata-key-page",
+        type: "source",
+        title: "Metadata key page",
+        body: "Body",
+        metadata: { set: { sourceUrl: "https://example.com/a" } }
+      })
+    ).rejects.toThrow(/lowercase snake_case/);
   });
 });
