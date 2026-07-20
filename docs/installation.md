@@ -12,6 +12,7 @@ Use the command line to install, manage, connect, and remove Wikimemory:
 ```sh
 npx wikimemory install
 npx wikimemory status
+npx wikimemory browse
 npx wikimemory upgrade
 npx wikimemory passkeys list
 npx wikimemory connect codex
@@ -64,6 +65,10 @@ the exact Worker, D1, and KV names and asks for confirmation. It then:
 3. applies database updates and deploys Wikimemory;
 4. creates a one-time owner setup URL;
 5. verifies the deployment and saves its non-secret details for later commands.
+
+The final handoff prints both the one-time passkey setup URL and a separately labeled
+manual connector URL ending in `/mcp`. Paste that complete connector URL into Claude,
+ChatGPT, or any other client configured by URL.
 
 On a Cloudflare account that has never deployed a Worker, Cloudflare first requires
 an account-wide `workers.dev` subdomain. The installer detects that condition before
@@ -124,8 +129,10 @@ Custom or parallel installations use the Worker name as the deployment-record na
 npx wikimemory upgrade --deployment my-memory
 ```
 
-Use `npx wikimemory status` to verify the recorded and running application versions,
-schema version, OAuth discovery, and React shell.
+Use `npx wikimemory status` to verify the deployment. Its output labels the browser
+address as **Web app** and the manual connector address as **MCP endpoint**; always
+copy the complete MCP endpoint, including `/mcp`, into a connector. Use
+`npx wikimemory browse` to open the web application directly.
 
 ## Passkey recovery
 
@@ -267,6 +274,26 @@ Then verify `orient` in a fresh conversation.
 In Claude's web settings, add a custom connector with
 `https://YOUR_WORKER_HOST/mcp`, then approve it with the passkey. Because the MCP is
 remote, the same connector is available from Claude web and mobile.
+
+The `/mcp` suffix is required. The bare Worker URL is the Wikimemory web application,
+not the connector endpoint.
+
+## ChatGPT on the web and phone
+
+ChatGPT setup starts on the web, following
+[OpenAI's developer-mode app flow](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt):
+
+1. Open **Settings → Security and login** and enable **Developer mode**. A managed
+   workspace may require an administrator to allow it.
+2. Open **Settings → Plugins**, select the plus button, and create an app using the
+   Wikimemory HTTPS `/mcp` URL printed by the installer.
+3. Complete authorization with the owner passkey.
+4. Start a new chat, select the plus button by the composer, choose **More**, and
+   select Wikimemory.
+
+After the app is linked on ChatGPT web, it is also available in the ChatGPT mobile
+app. ChatGPT and Codex keep separate connector registrations and authorization.
+As with Claude, the bare Worker URL is not a connector endpoint.
 
 ## Install the agent skills
 

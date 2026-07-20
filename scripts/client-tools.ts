@@ -1,10 +1,16 @@
-import { cp, mkdir } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { deploymentRecordPath, readDeploymentRecord } from "./deployment-record.ts";
 import { commandFailureMessage, runCommand } from "./subprocess.ts";
 
 type Client = "codex" | "claude";
+const SKILL_NAMES = [
+  "wikimemory-recall",
+  "wikimemory-ingest",
+  "wikimemory-lint",
+  "wikimemory-install"
+] as const;
 
 function client(value: string | undefined): Client {
   if (value === "codex" || value === "claude") return value;
@@ -17,6 +23,67 @@ async function run(command: string, args: string[], interactive = false): Promis
   });
   if (result.exitCode !== 0)
     throw new Error(commandFailureMessage(`${command} client configuration`, result));
+}
+
+function errorCode(error: unknown): unknown {
+  if (typeof error !== "object" || error === null) return undefined;
+  return Reflect.get(error, "code");
+}
+
+async function moveIfPresent(source: string, destination: string): Promise<boolean> {
+  try {
+    await rename(source, destination);
+    return true;
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
+    throw error;
+  }
+}
+
+export async function replaceSkillDirectories(
+  packageRoot: string,
+  destinationRoot: string,
+  names: readonly string[]
+): Promise<void> {
+  await mkdir(destinationRoot, { recursive: true, mode: 0o700 });
+  const stagingRoot = await mkdtemp(join(destinationRoot, ".wikimemory-install-"));
+  const incomingRoot = join(stagingRoot, "incoming");
+  const replacedRoot = join(stagingRoot, "replaced");
+  const installed: Array<{ destination: string; backup: string; hadExisting: boolean }> = [];
+  try {
+    await mkdir(incomingRoot);
+    await mkdir(replacedRoot);
+    for (const name of names) {
+      if (!/^wikimemory-[a-z0-9-]+$/u.test(name)) throw new Error(`Invalid skill name: ${name}`);
+      await cp(join(packageRoot, "skills", name), join(incomingRoot, name), {
+        recursive: true,
+        force: false,
+        errorOnExist: true
+      });
+    }
+    try {
+      for (const name of names) {
+        const destination = join(destinationRoot, name);
+        const backup = join(replacedRoot, name);
+        const hadExisting = await moveIfPresent(destination, backup);
+        try {
+          await rename(join(incomingRoot, name), destination);
+        } catch (error) {
+          if (hadExisting) await rename(backup, destination);
+          throw error;
+        }
+        installed.push({ destination, backup, hadExisting });
+      }
+    } catch (error) {
+      for (const item of installed.reverse()) {
+        await rm(item.destination, { recursive: true, force: true });
+        if (item.hadExisting) await rename(item.backup, item.destination);
+      }
+      throw error;
+    }
+  } finally {
+    await rm(stagingRoot, { recursive: true, force: true });
+  }
 }
 
 export async function connectClient(
@@ -53,13 +120,8 @@ export async function installSkills(
 ): Promise<void> {
   const target = client(selected);
   const destinationRoot = join(homedir(), target === "codex" ? ".codex" : ".claude", "skills");
-  await mkdir(destinationRoot, { recursive: true, mode: 0o700 });
-  const names = ["wikimemory-recall", "wikimemory-ingest", "wikimemory-lint", "wikimemory-install"];
-  for (const name of names) {
-    await cp(join(packageRoot, "skills", name), join(destinationRoot, name), {
-      recursive: true,
-      force: true
-    });
-  }
-  console.log(`Installed ${names.length} Wikimemory skills for ${target}. Restart the client.`);
+  await replaceSkillDirectories(packageRoot, destinationRoot, SKILL_NAMES);
+  console.log(
+    `Installed ${SKILL_NAMES.length} Wikimemory skills for ${target}. Restart the client.`
+  );
 }

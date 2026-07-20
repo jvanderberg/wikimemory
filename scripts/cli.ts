@@ -10,7 +10,7 @@ import { conciseError } from "./subprocess.ts";
 const [command, ...args] = process.argv.slice(2);
 
 function usage(): string {
-  return `Wikimemory ${WIKIMEMORY_VERSION}\nPersonal, passkey-protected memory for Claude, Codex, and other MCP clients.\n\nUsage: wikimemory COMMAND [OPTIONS]\n\nStart a personal Cloudflare-hosted instance:\n  npx wikimemory install\n\nTry it locally without a Cloudflare deployment:\n  npx wikimemory dev\n\nCommands:\n  wikimemory install [--deployment NAME] [installer options]\n  wikimemory recover [--deployment NAME]\n  wikimemory dev [wrangler dev options]\n  wikimemory status [--deployment NAME]\n  wikimemory upgrade [--deployment NAME] [--yes]\n  wikimemory passkeys [--deployment NAME] list|add|revoke\n  wikimemory connect [--deployment NAME] codex|claude\n  wikimemory skills install codex|claude\n  wikimemory uninstall [--deployment NAME] [--apply]\n  wikimemory --version\n\nUse \`wikimemory COMMAND --help\` for command-specific options.`;
+  return `Wikimemory ${WIKIMEMORY_VERSION}\nPersonal, passkey-protected memory for Claude, Codex, and other MCP clients.\n\nUsage: wikimemory COMMAND [OPTIONS]\n\nStart a personal Cloudflare-hosted instance:\n  npx wikimemory install\n\nTry it locally without a Cloudflare deployment:\n  npx wikimemory dev\n\nCommands:\n  wikimemory install [--deployment NAME] [installer options]\n  wikimemory recover [--deployment NAME]\n  wikimemory dev [wrangler dev options]\n  wikimemory status [--deployment NAME]\n  wikimemory browse [--deployment NAME]\n  wikimemory upgrade [--deployment NAME] [--yes]\n  wikimemory passkeys [--deployment NAME] list|add|revoke\n  wikimemory connect [--deployment NAME] codex|claude\n  wikimemory skills install codex|claude\n  wikimemory uninstall [--deployment NAME] [--apply]\n  wikimemory --version\n\nUse \`wikimemory COMMAND --help\` for command-specific options.`;
 }
 
 async function main(): Promise<void> {
@@ -41,6 +41,7 @@ async function main(): Promise<void> {
     !parsed.remaining.includes("--help") &&
     (command === "recover" ||
       command === "status" ||
+      command === "browse" ||
       command === "passkeys" ||
       command === "connect" ||
       command === "uninstall" ||
@@ -68,6 +69,15 @@ async function main(): Promise<void> {
       throw new Error("Usage: wikimemory status [--deployment NAME]");
     const { runStatus } = await import("./status.ts");
     await runStatus(parsed.deployment);
+  } else if (command === "browse") {
+    if (parsed.remaining.length === 1 && parsed.remaining[0] === "--help") {
+      console.log("Usage: wikimemory browse [--deployment NAME]");
+      return;
+    }
+    if (parsed.remaining.length !== 0)
+      throw new Error("Usage: wikimemory browse [--deployment NAME]");
+    const { runBrowse } = await import("./browse.ts");
+    await runBrowse(parsed.deployment);
   } else if (command === "passkeys") {
     process.env["WIKIMEMORY_STATE_DIR"] = paths.directory;
     process.env["WIKIMEMORY_PACKAGED"] = "1";

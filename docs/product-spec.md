@@ -64,9 +64,9 @@ confirmation.
 
 ### Phone use
 
-Claude mobile uses the deployed remote connector after it has been configured in a
-supported Claude web/desktop surface. The responsive web application provides direct
-browse and search access.
+Claude mobile and ChatGPT mobile use the deployed remote connector after it has been
+configured in the provider's web interface. The responsive Wikimemory web application
+provides direct browse and search access.
 
 ## 4. Document model
 

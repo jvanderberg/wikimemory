@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
+import { openBrowser } from "./browse.ts";
 import { passkeyRuntime } from "./lifecycle-runtime.ts";
 import { configuredOrigin } from "./setup.ts";
 import { conciseError } from "./subprocess.ts";
@@ -79,14 +78,6 @@ async function clientId(origin: string): Promise<string> {
     flag: "wx"
   });
   return registered.client_id;
-}
-
-function openBrowser(url: string): void {
-  const platform = process.platform;
-  const executable = platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
-  const child = spawn(executable, args, { detached: true, stdio: "ignore" });
-  child.unref();
 }
 
 async function authorizationCode(authorizeUrl: string, expectedState: string): Promise<string> {

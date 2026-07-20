@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WIKIMEMORY_VERSION } from "../src/version.ts";
@@ -51,6 +51,30 @@ async function packageSmoke(): Promise<void> {
     const tarballName = (await readdir(temporary)).find((name) => name.endsWith(".tgz"));
     if (tarballName === undefined) throw new Error("npm pack did not create a tarball");
     const tarball = join(temporary, tarballName);
+    const unpacked = await run("tar", ["-xzf", tarball, "-C", temporary], root);
+    if (unpacked.exitCode !== 0)
+      throw new Error(`Packed archive extraction failed: ${unpacked.stderr}`);
+    const packedRoot = join(temporary, "package");
+    await symlink(join(root, "node_modules"), join(temporary, "node_modules"));
+    const installedSkills = join(temporary, "installed-skills");
+    const developmentSkill = join(temporary, "development-skill");
+    await mkdir(installedSkills);
+    await mkdir(developmentSkill);
+    await writeFile(join(developmentSkill, "SKILL.md"), "development\n");
+    await symlink(developmentSkill, join(installedSkills, "wikimemory-recall"));
+    const installScript = `import { replaceSkillDirectories } from ${JSON.stringify(
+      join(packedRoot, "dist", "npm-cli", "scripts", "client-tools.js")
+    )}; await replaceSkillDirectories(${JSON.stringify(packedRoot)}, ${JSON.stringify(
+      installedSkills
+    )}, ["wikimemory-recall"]);`;
+    const installed = await run("node", ["--input-type=module", "--eval", installScript], root);
+    if (installed.exitCode !== 0)
+      throw new Error(`Packed skill replacement failed: ${installed.stderr}`);
+    const installedRecall = join(installedSkills, "wikimemory-recall");
+    if ((await lstat(installedRecall)).isSymbolicLink())
+      throw new Error("Packed skill installer retained the previous development symlink");
+    if (!(await readFile(join(installedRecall, "SKILL.md"), "utf8")).includes("wikimemory-recall"))
+      throw new Error("Packed skill installer did not install the release skill");
     const working = join(temporary, "empty");
     const configHome = join(temporary, "config");
     await mkdir(working);
@@ -62,6 +86,7 @@ async function packageSmoke(): Promise<void> {
       throw new Error(`Packed version command failed: ${version.stderr}`);
     for (const args of [
       ["--help"],
+      ["browse", "--help"],
       ["install", "--deployment", "scratch", "--help"],
       ["uninstall", "--deployment", "scratch", "--help"]
     ]) {

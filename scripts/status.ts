@@ -64,9 +64,11 @@ export async function runStatus(deployment: string): Promise<void> {
 }
 
 export function statusSummary(status: StatusResult): string {
+  const webApp = new URL("/", status.origin).toString();
+  const mcpEndpoint = new URL("/mcp", status.origin).toString();
   const mismatch =
     status.recordedVersion === status.runningVersion
       ? ""
       : `\nLocal record: ${status.recordedVersion} (run wikimemory upgrade to reconcile)`;
-  return `Wikimemory ${status.deployment}: ready\nURL: ${status.origin}\nVersion: ${status.runningVersion}\nDatabase: up to date.${mismatch}`;
+  return `Wikimemory ${status.deployment}: ready\nWeb app: ${webApp}\nMCP endpoint: ${mcpEndpoint}\nVersion: ${status.runningVersion}\nDatabase: up to date.${mismatch}`;
 }

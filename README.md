@@ -44,8 +44,9 @@ npx wikimemory install
 
 The installer previews the exact Cloudflare account, Worker, D1 database
 (Cloudflare's managed SQLite), and OAuth/session store before creating anything.
-Open its one-time URL to register the owner passkey, then connect a client and install
-its memory skills:
+Open its one-time URL to register the owner passkey. The installer also prints the
+exact `/mcp` URL to paste into clients that require manual connector setup. Then
+connect a command-line client and install its memory skills:
 
 ```sh
 npx wikimemory connect codex
@@ -56,9 +57,20 @@ npx wikimemory connect claude
 npx wikimemory skills install claude
 ```
 
-Use the same remote MCP from Claude web or mobile by adding the printed HTTPS `/mcp`
-URL as a custom connector. See the complete [installation guide](docs/installation.md)
-for recovery, passkey management, upgrades, and safe uninstall.
+To use Wikimemory on a phone, first add the HTTPS `/mcp` URL printed by the installer
+or by `npx wikimemory status`:
+
+Use the complete URL, including `/mcp`. The deployment root opens the Wikimemory web
+application and is not an MCP endpoint.
+
+- **Claude:** add it as a custom connector in Claude's web settings. It then appears
+  in Claude mobile.
+- **ChatGPT:** enable developer mode on ChatGPT web, create an app using the `/mcp`
+  URL under **Settings → Plugins**, and finish passkey authorization. The app then
+  appears in ChatGPT mobile.
+
+See the complete [installation guide](docs/installation.md) for detailed connection
+steps, recovery, passkey management, upgrades, and safe uninstall.
 
 ## Run locally
 
@@ -75,6 +87,7 @@ and MCP transport remain real.
 
 ```sh
 npx wikimemory status
+npx wikimemory browse
 npx wikimemory upgrade
 npx wikimemory recover
 npx wikimemory passkeys list

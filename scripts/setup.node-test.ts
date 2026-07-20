@@ -170,6 +170,10 @@ await describe("guided installer", async () => {
     assert.match(text, /wikimemory connect --deployment personal-memory claude/u);
     assert.doesNotMatch(text, /npx --yes/u);
     assert.match(text, /\/setup#raw-token/u);
+    assert.match(
+      text,
+      /Manual connector: paste this exact URL[^\n]*\nhttps:\/\/memory\.owner\.workers\.dev\/mcp/u
+    );
     assert.doesNotMatch(text, /SETUP_TOKEN_HASH/u);
   });
 
@@ -215,7 +219,7 @@ await describe("guided installer", async () => {
         return Promise.resolve(
           attempts === 1
             ? new Response("starting", { status: 500 })
-            : Response.json({ status: "ok", service: "wikimemory", version: "0.2.10" })
+            : Response.json({ status: "ok", service: "wikimemory", version: "0.2.11" })
         );
       },
       (milliseconds) => {
