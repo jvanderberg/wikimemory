@@ -39,7 +39,7 @@ function archiveLine(value: Record<string, unknown>): string {
 async function bounded<T>(statement: D1PreparedStatement, label: string): Promise<T[]> {
   const rows = await statement.all<T>();
   if (rows.results.length > MAX_EXPORT_ROWS)
-    throw new DomainError("limit_exceeded", `${label} exceeds the V1 export limit`);
+    throw new DomainError("limit_exceeded", `${label} exceeds the export limit`);
   return rows.results;
 }
 

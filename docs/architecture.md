@@ -53,9 +53,10 @@ and guarded purge. FTS5 indexes only current revisions.
 
 Production uses a user-verifying WebAuthn passkey. Registration requires the current
 one-use bootstrap secret, whose raw value is delivered only in the installer's URL
-fragment. Credential public keys and monotonic counters live in D1; challenges and
-short browser sessions live in KV. Local development uses a visibly marked fixed
-test owner. Production cannot enter that local path.
+fragment. Credential public keys, monotonic counters, and WebAuthn challenges live in
+D1; hashed browser-session records and OAuth provider state live in KV. Local
+development uses a visibly marked fixed test owner. Production cannot enter that
+local path.
 
 ### Web application
 
@@ -71,14 +72,15 @@ minutes, and recovery remains an out-of-band Cloudflare-account operation.
 
 ## Deployment model
 
-V1 provisions one Worker, one D1 database, and the OAuth provider's required storage
-bindings in the user's Cloudflare account. The domain schema includes a workspace ID
-even though the deployment creates exactly one personal workspace. Cross-workspace
-queries are forbidden by repository APIs.
+Wikimemory provisions one Worker, one D1 database, and the OAuth provider's required
+storage bindings in the user's Cloudflare account. The domain schema includes a
+workspace ID even though the deployment creates exactly one personal workspace.
+Cross-workspace queries are forbidden by repository APIs.
 
-The `workers.dev` URL is the canonical V1 resource URI. Custom domains are deferred.
+The `workers.dev` URL is the canonical resource URI. Custom domains are not currently
+supported.
 
-Cloudflare is the V1 recommendation because the Worker, D1, and KV bindings share a
+Cloudflare is the recommended host because the Worker, D1, and KV bindings share a
 single low-administration deployment and their current free tiers comfortably fit a
 personal text memory workload. Verify current limits on the official
 [Workers pricing page](https://developers.cloudflare.com/workers/platform/pricing/)
@@ -117,15 +119,15 @@ Domain errors have stable codes:
 - `internal_error`
 
 MCP adapters return actionable tool errors with structured data. Web adapters map the
-same errors to HTTP status codes and safe user messages. Internal errors receive a
-request ID; content and secrets never enter the error response or platform log.
+same errors to HTTP status codes and safe user messages. Content and secrets never
+enter error responses or application logs.
 
 ## Local architecture
 
 `wrangler dev` runs the Worker under workerd/Miniflare with a local D1 binding and
-persisted `.wrangler/state`. The local identity provider replaces passkey verification only; the
-Wikimemory authorization-code, PKCE, token, consent, scope, and resource-server paths
-remain exercised.
+persisted `.wrangler/state`. The local identity provider replaces passkey verification
+only; the Wikimemory authorization-code, PKCE, token, consent, scope, and
+resource-server paths remain exercised.
 
 The Workers Vitest pool provides isolated bindings for automated tests. Browser tests
 start the same local Worker. Codex CLI and Claude Code connect to the loopback MCP URL.

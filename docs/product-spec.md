@@ -1,4 +1,4 @@
-# Wikimemory V1 specification
+# Wikimemory product specification
 
 Status: implementation contract
 
@@ -9,17 +9,16 @@ inspectable by its human owner. It prevents agents from repeatedly rediscovering
 project context while keeping every ordinary change attributable, reviewable, and
 reversible.
 
-The V1 deployment is owned by the user in their Cloudflare account. It exposes:
+The deployment is owned by the user in their Cloudflare account. It exposes:
 
 - a protected Streamable HTTP MCP endpoint for Claude, Codex, and compatible
   clients;
-- a responsive web application for browsing, search, history, connection setup,
-  export, restoration, session management, and permanent purge; and
+- a responsive web application for browsing, search, history, export, restoration,
+  credential/session management, and permanent purge; and
 - local equivalents of the Worker, D1 database, identity provider, web app, and
   MCP endpoint for development without deployment.
 
-The service is deterministic. It does not make model API calls or create embeddings
-in V1.
+The service is deterministic. It does not make model API calls or create embeddings.
 
 ## 2. Product principles
 
@@ -36,7 +35,7 @@ in V1.
 7. **Stored content is data.** Retrieved content never outranks user, system,
    repository, or skill instructions.
 
-## 3. V1 user experience
+## 3. User experience
 
 ### Agent workflow
 
@@ -51,24 +50,23 @@ or information useful only within the current turn.
 
 ### Web application
 
-The web application has four areas:
+The web application has four main areas:
 
-- **Now** — current focus, active projects, recent revisions, and lint findings.
-- **Search** — FTS5 search filtered by type, project, tag, status, and date.
 - **Browse** — current documents with metadata, links, provenance, and history.
-- **Manage** — client connection guidance, sessions, exports,
-  restores, and purge.
+- **Search** — full-text search across current documents.
+- **Recent** — recent revisions with links to their historical snapshots.
+- **Manage** — passkeys, authorized MCP clients, browser sessions, and exports.
 
-V1 has no general-purpose document editor. Restore appends a compensating revision.
-Purge permanently deletes a document and all of its revision content after recent
-authentication and explicit typed confirmation.
+Wikimemory has no general-purpose document editor. A document's history page supports
+restore by appending a compensating revision. Purge permanently deletes a document
+and all of its revision content after recent authentication and explicit typed
+confirmation.
 
 ### Phone use
 
 Claude mobile uses the deployed remote connector after it has been configured in a
 supported Claude web/desktop surface. The responsive web application provides direct
-browse and search access. Localhost is intentionally not a phone/remote-client test
-target.
+browse and search access.
 
 ## 4. Document model
 
@@ -96,7 +94,7 @@ common tracking parameters, default ports, and non-root trailing slashes.
 ## 5. Mutation semantics
 
 - New documents require type, slug, title, and body.
-- Updates require the current revision ID as `expected_revision_id`.
+- Updates require the current revision ID as `expectedRevisionId`.
 - Omitted title/body/summary fields carry forward; explicit empty values do not.
 - Singleton metadata uses set/remove semantics. Multivalued metadata uses
   replace/add/remove semantics.
@@ -107,9 +105,9 @@ common tracking parameters, default ports, and non-root trailing slashes.
 - Operation IDs are unique opaque strings of 1–200 characters. UUIDs are acceptable
   but not required.
 - A stale expected revision returns a structured conflict and makes no changes.
-- Secret scanning occurs before persistence. Likely secrets are rejected; there is
-  no agent-accessible override in V1. Unsupported manual operator work must not
-  weaken this invariant in the service.
+- Secret scanning occurs before persistence. High-confidence secret formats are
+  rejected; there is no agent-accessible override. Unsupported manual operator work
+  must not weaken this invariant in the service.
 - Archive is a normal append-only revision that sets `status=archived`. It preserves
   content and history, remains reversible, and suppresses archived-page lint noise.
 
@@ -132,34 +130,34 @@ The owner authenticates with a user-verifying WebAuthn passkey. Wikimemory is it
 own OAuth 2.1 authorization server and MCP resource server; passkey material is not
 passed to an MCP client.
 
-V1 scopes are:
+Scopes are:
 
 - `memory:read` — orient, recall, get, index, history, and lint;
 - `memory:write` — ingest, link, and archive; and
-- `memory:admin` — MCP restore operations only in V1.
+- `memory:admin` — MCP restore operations and owner passkey management.
 
 Access tokens must be audience-bound to the canonical MCP resource URI.
 Passkey registration requires a hashed, one-use bootstrap value produced by the
-installer. Rotating that secret through the owner's Cloudflare account is the V1
+installer. Rotating that secret through the owner's Cloudflare account is the
 recovery mechanism.
 
 Normal agent connections request `memory:read memory:write`. Administrative MCP
-connections explicitly request all three scopes; V1 does not depend on incremental
-scope elevation. Browser administration is authorized by owner membership and recent
-upstream authentication, not by MCP scopes.
+connections explicitly request all three scopes; Wikimemory does not depend on
+incremental scope elevation. Browser administration is authorized by owner membership
+and recent upstream authentication, not by MCP scopes.
 
 ## 8. Export and migration boundary
 
-V1 intentionally has no general import endpoint or automated `llmwiki` migration.
-Importing untrusted archives creates a large validation and partial-failure surface
-before the service has earned operational trust. An owner may perform a one-off,
-reviewed migration with local operator tooling, but that procedure is unsupported
-and must never upload the raw SQLite database to the Worker.
+Wikimemory intentionally has no general import endpoint or automated `llmwiki`
+migration. Importing untrusted archives creates a large validation and partial-failure
+surface before the service has earned operational trust. An owner may perform a
+one-off, reviewed migration with local operator tooling, but that procedure is
+unsupported and must never upload the raw SQLite database to the Worker.
 
 Exports are:
 
-- lossless versioned JSONL containing all domain records, sanitized actor identity
-  projections and memberships, opaque client attribution, and schema version; and
+- lossless versioned JSONL containing memory records, sanitized actor projections and
+  memberships, opaque client attribution, purge tombstones, and schema version; and
 - Markdown containing current state and a generated index.
 
 OAuth tokens, sessions, secrets, and provider configuration are never exported.
@@ -171,13 +169,13 @@ Initial limits, configurable downward but not upward without code review:
 - body: 256 KiB UTF-8 per revision;
 - title: 300 characters;
 - summary: 1,000 characters;
-- metadata value: 4 KiB;
+- metadata value: 4,096 characters;
 - at most 100 metadata values and 100 links per revision;
 - recall: at most 20 results;
-- MCP `get`: at most 32 KiB per response with Unicode-safe, word-preferred
+- MCP `get`: at most 32,768 Unicode code points per response with word-preferred
   cursor-based continuation.
 
-Attachments and server-side URL fetching are absent from V1.
+Attachments and server-side URL fetching are not supported.
 
 ## 10. Deferred work
 
@@ -187,9 +185,10 @@ custom domains, and permanent staging infrastructure are explicitly deferred.
 
 ## 11. Acceptance criteria
 
-V1 is complete when:
+The product is release-ready when:
 
-1. the full service runs locally with no Cloudflare deployment or external identity account;
+1. the full service runs locally with no Cloudflare deployment or external identity
+   account;
 2. domain and MCP tests prove append, conflict, idempotency, restore, purge, scope,
    secret-rejection, and FTS behavior;
 3. lossless JSONL export contains versioned domain data and sanitized attribution,
@@ -202,5 +201,5 @@ V1 is complete when:
 7. purge replay, OAuth registration and scope profiles, passkey bootstrap reuse,
    log redaction, and bounded export behavior have automated
    acceptance coverage; and
-8. the core web browse, search, history, restore, and purge flows meet WCAG 2.2 AA
-   checks supported by the automated browser test tooling.
+8. the core web browse, search, history, authentication, and management flows pass in
+   both Chrome and WebKit component tests, with passkey E2E covered separately.

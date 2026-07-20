@@ -11,6 +11,27 @@ sanitized exports, and version-matched client skills. The server does not call a
 LLM; Claude or Codex performs synthesis while Wikimemory provides deterministic,
 auditable storage and retrieval.
 
+## What you can use it for
+
+- Maintain a to-do list and let an assistant help prioritize, update, and archive it.
+- Track personal or work projects with status, decisions, open questions, and next
+  actions.
+- Collect sources and build a durable research notebook with summaries and
+  provenance.
+- Keep an automated journal or work log containing the entries you choose to save.
+- Maintain notes about people, conversations, commitments, and important context.
+- Preserve meeting notes and decision history so later sessions know why a choice
+  was made.
+- Build a personal assistant that combines connected email or calendar tools with
+  selected long-term memory.
+- Keep learning notes, reading lists, household context, or a troubleshooting and
+  incident notebook.
+
+Wikimemory does not read email, calendars, or other services on its own. A connected
+assistant uses those tools and saves only the information you ask it to remember.
+Because these uses can involve sensitive personal data, review the
+[security model](docs/security.md) before deciding what to store.
+
 ## Quick start
 
 Requirements: Node.js 22+, npm, a Cloudflare account, and a passkey-capable browser
@@ -21,9 +42,10 @@ npx wrangler login
 npx wikimemory install
 ```
 
-The installer previews the exact Cloudflare account, Worker, D1 database, and KV
-namespace before creating anything. Open its one-time URL to register the owner
-passkey, then connect a client and install its memory skills:
+The installer previews the exact Cloudflare account, Worker, D1 database
+(Cloudflare's managed SQLite), and OAuth/session store before creating anything.
+Open its one-time URL to register the owner passkey, then connect a client and install
+its memory skills:
 
 ```sh
 npx wikimemory connect codex
@@ -83,7 +105,7 @@ Do not store credentials or material you are unwilling to entrust to the host.
 
 ## Design documents
 
-- [Product specification](docs/v1-spec.md)
+- [Product specification](docs/product-spec.md)
 - [Architecture](docs/architecture.md)
 - [Security and threat model](docs/security.md)
 - [Data model](docs/data-model.md)
@@ -92,7 +114,7 @@ Do not store credentials or material you are unwilling to entrust to the host.
 - [Installation and client connection](docs/installation.md)
 - [Export formats and privacy](docs/export-format.md)
 - [Pasteable agent instructions](docs/manual-agent-instructions.md)
-- [Implementation plan](docs/implementation-plan.md)
+- [Implementation history](docs/implementation-history.md)
 - [Independent design review and dispositions](docs/design-review-2026-07-18.md)
 
 ## Current scope

@@ -19,7 +19,7 @@ npx wikimemory skills install codex
 npx wikimemory uninstall
 ```
 
-Each installation stores non-secret lifecycle state under
+Each installation stores its non-secret deployment details under
 `~/.config/wikimemory/deployments/NAME/`. Use `--deployment NAME` consistently for
 parallel installations. Each command uses the files from the selected Wikimemory
 release.
@@ -50,7 +50,7 @@ First authenticate Wrangler:
 npx wrangler login
 ```
 
-Deploy from any directory with:
+Install Wikimemory with:
 
 ```sh
 npx wikimemory install
@@ -59,16 +59,11 @@ npx wikimemory install
 Before changing anything, the installer displays the active Cloudflare identity and
 the exact Worker, D1, and KV names and asks for confirmation. It then:
 
-1. creates an ignored `wrangler.production.jsonc`;
-2. confirms that the requested remote names are unused;
-3. deploys a bootstrap Worker and discovers its `workers.dev` origin;
-4. creates and binds D1 and KV, then applies the remote migrations;
-5. generates a random one-time setup value, stores only its SHA-256 hash as a
-   Cloudflare Worker secret, and redeploys with the canonical origin;
-6. verifies both `/health` and the D1-backed `/ready` check;
-7. writes a non-secret deployment record under
-   `~/.config/wikimemory/deployments/` for later upgrades; and
-8. prints the one-time passkey setup URL and client commands.
+1. confirms that the requested remote names are unused;
+2. creates the Worker address, D1 database, and KV namespace;
+3. applies database updates and deploys Wikimemory;
+4. creates a one-time owner setup URL;
+5. verifies the deployment and saves its non-secret details for later commands.
 
 On a Cloudflare account that has never deployed a Worker, Cloudflare first requires
 an account-wide `workers.dev` subdomain. The installer detects that condition before
@@ -76,28 +71,22 @@ creating D1 or KV, reconnects Wrangler directly to the terminal, and lets Wrangl
 prompt for and register an available subdomain. Setup then continues automatically.
 Non-interactive setup stops before creating storage and asks to be rerun in a terminal.
 
-Remote migrations are uploaded as one atomic file per migration because D1's query
-endpoint cannot reliably parse compound trigger bodies. Each uploaded file includes
-its `d1_migrations` record, so an interrupted run either applies the entire migration
-or none of it. `npm run db:migrate:production` uses the same path for later updates.
-
 Open that setup URL on a phone or computer with a passkey-capable browser. The raw
 setup value is in the URL fragment, so it is not sent in the initial HTTP request or
 normal access logs. It is held in page memory only long enough to request passkey
 registration, is never written to disk by the installer, and cannot be reused after
 successful registration.
 
-Custom resource names are optional:
+Use `--deployment` to choose a different name for the Worker and its storage:
 
 ```sh
-npx wikimemory install --worker-name my-memory --database-name my-memory --kv-name my-memory-oauth
+npx wikimemory install --deployment my-memory
 ```
 
 If Wrangler exposes more than one Cloudflare account, the installer asks which one
-to use and pins its ID in the generated config. For noninteractive use, pass
-`--account-id ID --yes`. Before provisioning, the installer also refuses collisions
-with existing Worker, D1, or KV names; select unused custom names instead of
-overwriting or silently adopting unrelated resources.
+to use. Before provisioning, it also refuses collisions with existing Worker, D1, or
+KV names; select unused custom names instead of overwriting or silently adopting
+unrelated resources.
 
 If provisioning stops after collision preflight, rerun with `--resume`. The ignored
 installer state pins the preflighted account and resource names; existing bindings
@@ -105,9 +94,7 @@ are reused and missing stages continue. Resume refuses to run without proof that
 collision preflight succeeded. Fresh deployment refuses to overwrite same-named
 remote resources, and all uploads use Wrangler strict mode.
 
-`--yes` skips the confirmation and is intended for an operator who has already
-reviewed the displayed defaults. The installer does not delete or replace an
-existing production configuration.
+The installer does not delete or replace an existing production configuration.
 
 ## Upgrades
 
@@ -137,16 +124,13 @@ Custom or parallel installations use the Worker name as the deployment-record na
 npx wikimemory upgrade --deployment my-memory
 ```
 
-For testing an explicit record without changing the default, use
-`--record /absolute/path/to/record.json`. `--yes` accepts the displayed plan for
-noninteractive release automation.
-
 Use `npx wikimemory status` to verify the recorded and running application versions,
 schema version, OAuth discovery, and React shell.
 
 ## Passkey recovery
 
-Cloudflare account control is the recovery authority. Start recovery with:
+If every passkey is lost, access to the Cloudflare account lets the owner recover.
+Start recovery with:
 
 ```sh
 npx wikimemory recover
@@ -179,7 +163,7 @@ and blocks its browser sessions; recovery invalidates every outstanding registra
 link. Use `npx wikimemory recover` only when no remaining passkey is available or all
 existing credentials should be replaced.
 
-## Uninstall a test deployment
+## Uninstall
 
 Preview the exact cloud resources recorded for the installation:
 
@@ -223,31 +207,44 @@ For Claude web and mobile, remove the custom connector separately from
 **Settings > Connectors**. Repeat client cleanup on every machine or hosted client
 where Wikimemory was registered.
 
-## Connect Codex CLI
+## Connect Codex
 
-Use the exact HTTPS MCP endpoint printed by the installer:
+Connect Codex using the saved deployment details:
+
+```sh
+npx wikimemory connect codex
+```
+
+The command registers the MCP server and starts browser approval with the owner
+passkey. Normal agent connections request read/write access; use an administrative
+connection only when restore tools are needed.
+
+To configure Codex manually or use a custom connection name, use the exact HTTPS MCP
+endpoint printed by the installer:
 
 ```sh
 codex mcp add wikimemory --url https://YOUR_WORKER_HOST/mcp
 codex mcp login wikimemory --scopes memory:read,memory:write
 ```
 
-Approve the MCP client in the browser with the owner passkey. Normal agent
-connections request read/write scopes; use an administrative connection only when
-restore tools are needed.
-
-You can perform both steps with `npx wikimemory connect codex`.
-
 ## Connect Claude Code
+
+Connect Claude Code using the saved deployment details:
+
+```sh
+npx wikimemory connect claude
+```
+
+The command registers the MCP server and starts browser approval with the owner
+passkey. Claude stores and refreshes its Wikimemory OAuth tokens. Inside Claude Code,
+run `/mcp` afterward to verify the connection.
+
+To configure Claude Code manually or use a custom connection name:
 
 ```sh
 claude mcp add --transport http --scope user wikimemory https://YOUR_WORKER_HOST/mcp
+claude mcp login wikimemory
 ```
-
-Inside Claude Code, run `/mcp`, select Wikimemory, and approve with the passkey.
-Claude stores and refreshes its Wikimemory OAuth tokens.
-
-You can add the server with `npx wikimemory connect claude`.
 
 ### Recover a stale connector session
 
@@ -269,8 +266,7 @@ Then verify `orient` in a fresh conversation.
 
 In Claude's web settings, add a custom connector with
 `https://YOUR_WORKER_HOST/mcp`, then approve it with the passkey. Because the MCP is
-remote, the connector can be used from Claude web and mobile. Hosted clients cannot
-reach a local `127.0.0.1` Worker.
+remote, the same connector is available from Claude web and mobile.
 
 ## Install the agent skills
 

@@ -5,7 +5,7 @@ authenticated workspace, are never cached, and have no corresponding import rout
 
 ## Lossless JSONL
 
-`/app/export.jsonl` returns newline-delimited JSON with `schemaVersion: 1`. Records
+`/api/app/export.jsonl` returns newline-delimited JSON with `schemaVersion: 1`. Records
 are emitted in this order:
 
 1. manifest and workspace;
@@ -22,13 +22,13 @@ sessions, completed-operation replay records, and purge authorizations are exclu
 Actors and clients use deterministic archive-local aliases such as `actor-1` and
 `client-1`.
 
-Each record kind is capped at 10,000 rows in V1. Export fails rather than silently
+Each record kind is capped at 10,000 rows. Export fails rather than silently
 truncating a category. The archive is designed for custody and future reviewed
 recovery tooling; accepting it back into Wikimemory is deliberately unsupported.
 
 ## Current Markdown
 
-`/app/export.md` returns a generated index followed by every current page. It omits
+`/api/app/export.md` returns a generated index followed by every current page. It omits
 historical revisions and audit data and is intended for reading, search, and simple
 manual recovery—not as a lossless backup.
 

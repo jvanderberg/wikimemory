@@ -5,7 +5,7 @@ database is authoritative; Markdown is an export format.
 
 ## Required workflow
 
-- Read `docs/v1-spec.md` and the relevant design document before changing code.
+- Read `docs/product-spec.md` and the relevant design document before changing code.
 - Preserve append-only revision history. Normal updates and restores always append
   revisions. Permanent purge is the sole deletion exception.
 - Route all writes through the domain service. HTTP handlers, MCP tools, and web
@@ -18,25 +18,28 @@ database is authoritative; Markdown is an export format.
 
 ## Local verification
 
-The intended commands are:
+Run the complete local gate:
 
 ```sh
-npm test
-npm run typecheck
-npm run lint
-npm run test:e2e
+npm run check
 ```
 
-Until those scripts exist, follow `docs/implementation-plan.md` and document any
-temporary verification command in the change that introduces it.
+Before a release, also run the packaged CLI smoke test, real passkey browser flow,
+and release-manifest verification:
+
+```sh
+npm run test:package
+npm run test:passkey
+npm run verify:release
+```
 
 ## Repository map
 
 - `docs/` — reviewed product and technical specification
-- `src/domain/` — invariant-preserving application services
-- `src/storage/` — D1 queries and migrations
+- `src/domain/` — invariant-preserving services and D1 queries
+- `migrations/` — versioned D1 schema
 - `src/mcp/` — MCP transport and tool adapters
 - `src/auth/` — MCP OAuth and upstream identity providers
-- `src/web/` — human browse/search/admin application
+- `src/web/` — authenticated web API adapters
+- `web/` — React browse/search/admin application
 - `skills/` — distributable Codex and Claude workflows
-- `.agents/skills/` — repo-scoped development copies/symlinks

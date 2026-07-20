@@ -1,7 +1,9 @@
-# Implementation plan
+# Implementation history
 
-Each phase ends with passing tests and a reviewable commit-sized change. Later phases
-must not weaken invariants established earlier.
+Status: completed initial implementation sequence.
+
+This records the phases used to build Wikimemory. Each phase ended with passing tests
+and a reviewable change, without weakening invariants established earlier.
 
 ## Phase 1 — foundation
 
@@ -35,7 +37,7 @@ Exit: race, retry, restore, and purge integration tests pass.
 
 ## Phase 4 — local auth and MCP
 
-- MCP Streamable HTTP server, bounded tools/resources, and safe error mapping.
+- MCP Streamable HTTP server, bounded tools, and safe error mapping.
 - OAuth provider and resource-server behavior.
 - Local identity provider with owner/reader/unauthorized fixtures.
 - Programmatic MCP/OAuth contract tests.
@@ -48,7 +50,7 @@ OAuth, and agent skills work together before web/deployment work expands.
 ## Phase 5 — passkey identity and web application
 
 - WebAuthn registration, authentication, bootstrap rotation, and recovery.
-- Now, Search, Browse, document/history, and Manage pages.
+- Browse, Search, Recent, document/history, and Manage pages.
 - JSONL/Markdown export, restore, session
   administration, and purge flows.
 - Responsive and accessible browser tests.
@@ -59,9 +61,9 @@ deployment with passkey identity.
 ## Phase 6 — skills and installation
 
 - Skills: recall, ingest, lint, and installation.
-- Repo-scoped development skills and pasteable manual contract.
-- Guided TypeScript installer and documentation for Cloudflare, Codex CLI, Claude Code, Claude
-  custom connectors, and mobile use.
+- Versioned client skills and a pasteable manual contract.
+- Guided TypeScript installer and documentation for Cloudflare, Codex CLI, Claude
+  Code, Claude custom connectors, and mobile use.
 
 Exit: a fresh user can deploy/connect by following the installation skill and can
 export all cloud memory without provider-specific database access.
@@ -75,5 +77,5 @@ export all cloud memory without provider-specific database access.
   mobile.
 - Documentation reconciliation with observed behavior.
 
-Exit: every acceptance criterion in `v1-spec.md` is either demonstrated or explicitly
-reported as requiring user-owned cloud credentials for final verification.
+Exit: every acceptance criterion in `product-spec.md` is either demonstrated or
+explicitly reported as requiring user-owned cloud credentials for final verification.

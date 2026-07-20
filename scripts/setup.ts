@@ -416,7 +416,7 @@ export async function verifyEndpoint(
 
 export function handoff(origin: string, rawToken: string, deploymentName: string): string {
   const endpoint = `${origin}/mcp`;
-  return `Wikimemory is ready for owner setup.\n\nOpen this one-time URL on a device that can create a passkey:\n${origin}/setup#${encodeURIComponent(rawToken)}\n\nAfter setup, connect clients with:\n  npx --yes wikimemory connect --deployment ${deploymentName} codex\n  npx --yes wikimemory connect --deployment ${deploymentName} claude\n\nMCP endpoint: ${endpoint}\nThe setup token was not written to disk. This is the only time it will be printed.`;
+  return `Wikimemory is ready for owner setup.\n\nOpen this one-time URL on a device that can create a passkey:\n${origin}/setup#${encodeURIComponent(rawToken)}\n\nAfter setup, connect clients with:\n  npx wikimemory connect --deployment ${deploymentName} codex\n  npx wikimemory connect --deployment ${deploymentName} claude\n\nMCP endpoint: ${endpoint}\nThe setup token was not written to disk. This is the only time it will be printed.`;
 }
 
 async function remoteWorkerExists(workerName: string): Promise<boolean> {

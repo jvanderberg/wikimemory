@@ -10,13 +10,14 @@ only durable identity projections needed for ownership and audit.
 
 ### `principals`
 
-`id`, `provider`, `provider_subject`, normalized `email`, display name, created time.
-The provider subject is authoritative; email is display and allowlist input.
+`id`, `provider`, `provider_subject`, optional email, display name, and created time.
+The provider subject is authoritative; production passkey owners do not require an
+email address.
 
 ### `workspaces` and `memberships`
 
 A workspace has an opaque ID, name, and creation time. Membership maps a principal
-to `owner`, `writer`, or `reader`. V1 creates one workspace and one owner but tests
+to `owner`, `writer`, or `reader`. Wikimemory creates one workspace and one owner but tests
 isolation and roles with additional fixtures.
 
 Uniqueness is enforced for `(provider, provider_subject)`, normalized verified email
@@ -139,7 +140,8 @@ of the transaction; the authorization is consumed last.
 Lossless JSONL begins with a manifest and emits sanitized principal projections,
 workspaces, memberships, document identities, revisions in document/revision-number
 order, metadata, links, and sanitized audit events. Exported actor and client IDs are
-stable archive-local aliases rather than authentication identifiers. Provider authentication records, browser sessions, token material,
-ordinary completed operations used solely for replay, and purge authorizations are
-excluded. Content-free purge operation tombstones are exported so a future reviewed
-restore tool can preserve the non-resurrection invariant.
+stable archive-local aliases rather than authentication identifiers. Provider
+authentication records, browser sessions, token material, ordinary completed
+operations used solely for replay, and purge authorizations are excluded.
+Content-free purge operation tombstones are exported so a future reviewed restore
+tool can preserve the non-resurrection invariant.

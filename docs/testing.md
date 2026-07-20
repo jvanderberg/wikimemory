@@ -24,23 +24,22 @@ npm run format          # apply Biome formatting and import organization
 npm run format:check    # fail on formatting or import-order drift
 npm run typecheck
 npm run lint
-npm run check           # typecheck + Biome/ESLint + all automated tests
+npm run docs:check      # verify documentation links, commands, and current terminology
+npm run check           # typecheck, lint, tests, and coverage gates
+npm run test:package    # pack and exercise the CLI from a temporary empty directory
+npm run verify:release  # verify version and migration-manifest consistency
 ```
 
-`dev:reset` and expanded browser E2E remain later work. Until then, reset only the explicit repository-local
-`.wrangler/state` path manually after verifying it, and use the smoke script plus
-manual web checks.
-
-Destructive reset scripts resolve and validate the repository-local state path before
-removal. They never accept a broad directory or unresolved environment variable.
+There is no automated development reset command. To reset contributor state, stop the
+development server and remove only the verified repository-local `.wrangler/state`
+directory. Use the smoke script plus manual web checks for broader end-to-end changes.
 
 ## Local identity
 
-The React local authorization page offers a fixed fake owner. Reader and
-denied-identity fixtures remain planned for authorization coverage. Selecting the
-owner completes the upstream identity step. Wikimemory's own consent, authorization
-code, PKCE, access/refresh token, scope, resource audience, and revocation behavior
-remain real.
+The React local authorization page offers a fixed fake owner. Selecting the owner
+completes the upstream identity step. Wikimemory's own consent, authorization code,
+PKCE, access/refresh token, scope, resource audience, and revocation behavior remain
+real. Programmatic tests cover rejected identities and authorization boundaries.
 
 Production configuration fails to start if local identity or fixture seeding is
 enabled.
@@ -77,14 +76,15 @@ The destructive uninstall sequence runs against an injected fake command runner 
 temporary directory, validating Cloudflare command order and local cleanup without
 changing remote resources.
 
-The browser project uses the installed stable Google Chrome channel. Install Chrome
+The browser project runs the component suite in both the installed stable Google
+Chrome channel and Playwright WebKit. Install Chrome and the Playwright WebKit browser
 before running the full check on a fresh development machine.
 
 ### MCP contract
 
 A programmatic client connects to the local Streamable HTTP endpoint. Tests cover
-initialization, tools/resources, discovery challenges, scopes, OAuth, structured
-content, errors, and output limits. An MCP inspector recipe supports exploratory use.
+initialization, tool schemas, discovery challenges, scopes, OAuth, structured
+content, errors, and output limits.
 
 ### Browser interaction coverage
 
@@ -95,12 +95,11 @@ grant, and browser-session management. Full browser/WebAuthn E2E remains availab
 
 ### Agent behavior
 
-Repo-scoped Codex and Claude skills connect to `wikimemory-dev`. A pasteable manual
-contract provides a control condition. Scenario tests assess recall-before-work,
-deduplication-before-ingest, meaningfulness, provenance, conflict handling, and
-resistance to instructions embedded in source documents.
-
-These scenarios are behavioral checks, not brittle assertions on exact prose.
+The distributed Codex and Claude skills define recall-before-work, deduplication,
+meaningful ingestion, provenance, conflict handling, and resistance to instructions
+embedded in stored documents. The pasteable manual contract provides the same core
+behavior when skills are unavailable. Agent behavior is validated manually during
+release acceptance rather than by brittle assertions on generated prose.
 
 ## Local client use
 
@@ -113,4 +112,4 @@ is a release acceptance check rather than a normal development dependency.
 
 Fixtures contain only synthetic identities, projects, sources, and fake credentials.
 No test or development command reads the user's personal `llmwiki` database. Manual
-migration is outside the supported V1 surface.
+migration is outside the supported product surface.

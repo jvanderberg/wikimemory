@@ -68,8 +68,15 @@ async function packageSmoke(): Promise<void> {
       const result = await invoke(args);
       if (result.exitCode !== 0 || !result.stdout.includes("Usage:"))
         throw new Error(`Packed command failed (${args.join(" ")}): ${result.stderr}`);
-      if (args[0] === "--help" && !result.stdout.includes("Personal, passkey-protected memory"))
-        throw new Error("Packed help does not explain what Wikimemory is");
+      if (args[0] === "--help") {
+        if (!result.stdout.includes("Personal, passkey-protected memory"))
+          throw new Error("Packed help does not explain what Wikimemory is");
+        if (
+          !result.stdout.includes("npx wikimemory install") ||
+          result.stdout.includes("npx --yes")
+        )
+          throw new Error("Packed help does not present the normal npx workflow");
+      }
     }
     const missing = await invoke(["status"]);
     if (

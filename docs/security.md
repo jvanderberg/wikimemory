@@ -11,21 +11,23 @@
 
 ## Trust boundaries
 
-The human owner, authenticators, MCP clients, Cloudflare runtime, and stored source material
-are separate trust domains. Claude and Codex are authorized callers, not database
-administrators. Text inside a source document is untrusted even when the authenticated
-owner asked an agent to store it.
+The human owner, authenticators, MCP clients, Cloudflare runtime, and stored source
+material are separate trust domains. Claude and Codex are authorized callers, not
+database administrators. Text inside a source document is untrusted even when the
+authenticated owner asked an agent to store it.
 
-V1 uses Cloudflare-managed encryption at rest and TLS in transit. It is not end-to-end
-encrypted against the infrastructure provider. This limitation must be explicit in
-the README and installation flow.
+Wikimemory uses Cloudflare-managed encryption at rest and TLS in transit. It is not
+end-to-end encrypted against the infrastructure provider. This limitation must be
+explicit in the README and installation flow.
 
-Cloudflare encrypts the hosted D1 database and KV namespace at rest with
-provider-managed keys. Wikimemory does not add application-layer encryption to
-document bodies, metadata, relationships, local Miniflare databases, or exported
-archives. Anyone with sufficient Cloudflare account/provider access—or access to a
-local database or export—can read that content. Client-side, owner-held-key encryption
-would be a separate design with substantial search and recovery tradeoffs.
+Cloudflare documents provider-managed encryption at rest for both
+[D1](https://developers.cloudflare.com/d1/reference/data-security/) and
+[Workers KV](https://developers.cloudflare.com/kv/reference/data-security/).
+Wikimemory does not add application-layer encryption to document bodies, metadata,
+relationships, local Miniflare databases, or exported archives. Anyone with
+sufficient Cloudflare account/provider access—or access to a local database or
+export—can read that content. Client-side, owner-held-key encryption would be a
+separate design with substantial search and recovery tradeoffs.
 
 ## Primary threats and controls
 
@@ -50,7 +52,7 @@ would be a separate design with substantial search and recovery tradeoffs.
 - Every domain query receives a workspace ID from authenticated context.
 - Repository methods never accept an optional workspace.
 - Foreign and unique keys include workspace where appropriate.
-- Tests create two workspaces even though the V1 UI provisions one.
+- Tests create two workspaces even though the product provisions one.
 
 ### Prompt injection and memory poisoning
 
@@ -100,8 +102,8 @@ accidents, not a general secret classifier.
 - No raw SQL tool, arbitrary fetch tool, or attachment upload exists.
 - Bound all inputs, result counts, and MCP output sizes.
 - Render stored bodies as text in React; never inject stored HTML into the DOM.
-- Apply conservative request-rate limits in application code where practical, while
-  treating provider-level rate infrastructure as deferred operational work.
+- Rely on hard request, query, export, and response bounds. Dedicated application and
+  provider-level rate-limit infrastructure is deferred operational work.
 
 ### Logs and diagnostics
 
@@ -118,8 +120,8 @@ authorization headers.
 - Local D1 state lives under an ignored repository directory.
 - Test exports and credentials use unmistakably fake data.
 
-V1 exposes no archive import route. One-off migration is an unsupported local owner
-operation and receives no agent-accessible secret-scan override.
+Wikimemory exposes no archive import route. One-off migration is an unsupported local
+owner operation and receives no agent-accessible secret-scan override.
 
 ## Purge mechanism
 

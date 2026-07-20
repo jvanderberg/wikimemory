@@ -107,7 +107,8 @@ async function main(): Promise<void> {
       });
       await page.goto(`${ORIGIN}/setup#${TOKEN}`);
       await page.getByRole("button", { name: "Create passkey" }).click();
-      await page.getByText("Passkey saved. Wikimemory is ready.").waitFor();
+      await page.getByRole("heading", { name: "Passkey created" }).waitFor();
+      await page.getByRole("link", { name: "Continue to Wikimemory" }).waitFor();
       await page.goto(`${ORIGIN}/test/passkey/login`);
       await page.getByRole("button", { name: "Continue with passkey" }).click();
       await page.waitForURL(`${ORIGIN}/app`);

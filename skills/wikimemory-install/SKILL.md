@@ -21,14 +21,13 @@ opened before login. Start a new conversation or restart the CLI; if needed, use
 documented `mcp logout` then `mcp login` sequence and verify `orient` from a fresh
 conversation. The Worker cannot refresh client-owned in-memory connector state.
 
-For Claude on phone, configure the same HTTPS endpoint as a custom connector in Claude's web settings; localhost is not reachable from hosted clients.
+For Claude on phone, configure the same HTTPS endpoint as a custom connector in Claude's web settings.
 
 ## Deploy a new instance
 
 1. Confirm the user controls a Cloudflare account. Deployment changes external state, so show the exact target account, Worker name, D1 database name, and KV namespace before applying it.
-2. Run `npx wikimemory install`, or the repository's guided TypeScript workflow for
-   maintainer testing. Use `--deployment NAME` for a
-   non-default installation. Do not reimplement provisioning steps ad hoc.
+2. Run `npx wikimemory install`. Use `--deployment NAME` for a non-default
+   installation. Do not reimplement provisioning steps ad hoc.
 3. Stop after the installer prints the one-time URL. The human must open it and create the owner passkey; never open, copy, or retain that URL for them.
 4. After the user confirms passkey setup, verify protected-resource metadata, OAuth login, and an authenticated `orient` call.
 5. Do not enable local fixture identity in production. Never print, commit, or persist setup material outside the installer's one-time handoff and Cloudflare's secret store.
@@ -37,8 +36,7 @@ If a provisioning step fails after the config is created, rerun the documented
 `--resume` workflow. It must require the installer's successful-preflight state.
 Never work around a remote resource name collision by deploying over it.
 
-For lost-passkey recovery, use `npx wikimemory recover` or the documented repository
-fallback.
+For lost-passkey recovery, use `npx wikimemory recover`.
 It rotates the bootstrap hash and prints a one-use registration URL. Existing
 credentials remain active until the replacement verifies; successful recovery then
 replaces all old credentials and revokes browser sessions and MCP grants. It must
@@ -49,12 +47,9 @@ deletion. Apply uninstall only after showing the exact config-recorded account,
 Worker, D1, and KV targets and obtaining the exact Worker-name confirmation. State
 plainly that deleting D1 permanently destroys the remote memory.
 
-If production deployment is marked incomplete in the installation guide, stop after local setup or client connection and state the limitation rather than improvising an insecure path.
-
 ## Update an existing instance
 
-1. Run `npx wikimemory status` first, then use `npx wikimemory upgrade` or
-   `npm run upgrade` for maintainer testing from this repository.
+1. Run `npx wikimemory status` first, then use `npx wikimemory upgrade`.
 2. Let the CLI load the non-secret deployment record written by setup and show the
    exact account, Worker, D1 database, KV namespace, origin, version transition, and
    pending migrations before changing remote state.
@@ -70,7 +65,7 @@ An ordinary update must not run `setup -- --resume` or `setup -- --recover`, rot
 
 ## Manage an installed instance
 
-- Run `npx wikimemory dev` for package-owned local D1/KV/Worker testing; state is
+- Run `npx wikimemory dev` for local D1/KV/Worker testing; state is
   retained under the current directory's `.wikimemory/dev`.
 - Run `npx wikimemory passkeys list|add|revoke` for owner credential management.
 - Run `npx wikimemory connect codex|claude` only when the user explicitly asks to
