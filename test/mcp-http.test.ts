@@ -181,7 +181,12 @@ describe("authenticated Streamable HTTP MCP", () => {
       structuredContent: z.record(z.string(), z.unknown())
     });
     async function tool(name: string, args: object): Promise<z.infer<typeof resultSchema>> {
-      return resultSchema.parse(await rpc("tools/call", { name, arguments: args }));
+      const result = resultSchema.parse(await rpc("tools/call", { name, arguments: args }));
+      if (result.isError !== true) {
+        expect(result.content).toHaveLength(2);
+        expect(JSON.parse(result.content[1]?.text ?? "null")).toEqual(result.structuredContent);
+      }
+      return result;
     }
 
     const oriented = await tool("orient", {});
@@ -369,7 +374,12 @@ describe("authenticated Streamable HTTP MCP", () => {
       await tool("index", { type: "note" }),
       await tool("history", { slug: "hostile-stored-page" })
     ]) {
-      expect(result.content.map(({ text }) => text).join("\n")).not.toContain(hostileMarker);
+      const summary = result.content[0]?.text ?? "";
+      const fallback = result.content[1]?.text ?? "";
+      expect(summary).not.toContain(hostileMarker);
+      expect(summary).toContain("untrusted data");
+      expect(fallback).toContain(hostileMarker);
+      expect(fallback).toContain('"storedContentTrust":"untrusted"');
       expect(result.structuredContent["storedContentTrust"]).toBe("untrusted");
     }
 

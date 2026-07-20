@@ -57,8 +57,11 @@ function textContent(text: string): { type: "text"; text: string } {
 }
 
 function toolResult<T extends Record<string, unknown>>(value: T, message: string) {
+  // content[0] is the human-readable summary. content[1] is the MCP-recommended
+  // serialized fallback for clients that do not surface structuredContent.
+  // storedDataResult adds explicit untrusted-data framing to both representations.
   return {
-    content: [textContent(message)],
+    content: [textContent(message), textContent(JSON.stringify(value))],
     structuredContent: value
   };
 }

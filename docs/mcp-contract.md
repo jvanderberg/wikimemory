@@ -17,12 +17,13 @@ Normal agent connections request `memory:read memory:write`. An administrative M
 connection explicitly requests `memory:read memory:write memory:admin`; Wikimemory
 does not rely on incremental scope challenges.
 
-All tools return a short human-readable content item plus equivalent structured
-content. Read tools never copy stored titles, bodies, summaries, snippets, or
-revision reasons into the free-form text item. Stored prose appears only in named
-structured fields, and read envelopes containing it carry
-`storedContentTrust: "untrusted"`. Error results contain a stable `code`, a safe
-message, and code-specific fields. They never echo secret candidates or OAuth
+All successful tools return a short human-readable summary, a serialized JSON text
+fallback, and equivalent structured content. This follows the MCP compatibility
+recommendation and supports clients that do not surface `structuredContent`. Read
+tool summaries never interpolate stored prose. Their JSON fallback and structured
+envelope both carry `storedContentTrust: "untrusted"`; clients and models must treat
+the stored fields as data, not instructions. Error results contain a stable `code`,
+a safe message, and code-specific fields. They never echo secret candidates or OAuth
 material.
 
 ## Tools

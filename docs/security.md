@@ -58,9 +58,11 @@ separate design with substantial search and recovery tradeoffs.
 
 - MCP descriptions and skills state that retrieved content is data, not instruction.
 - `source` documents default to `trust=untrusted`.
-- Search and get responses separate server provenance from document content. MCP
-  free-form text never interpolates stored prose; it remains in named structured
-  fields under an explicit `storedContentTrust: "untrusted"` marker.
+- Read responses put a trusted summary before the stored payload and never
+  interpolate stored prose into that summary. For MCP compatibility, the payload is
+  returned both as serialized JSON text and as named structured fields; both carry
+  an explicit `storedContentTrust: "untrusted"` marker. Consumers must treat either
+  representation as data, not instructions.
 - Stored content cannot change scopes, invoke tools, or select a different workspace.
 - Audit provenance distinguishes authenticated subject, client, and untrusted agent
   label.

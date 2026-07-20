@@ -127,14 +127,14 @@ await describe("packaged upgrade", async () => {
   });
 
   await it("uses concise, user-facing upgrade and status summaries", () => {
-    const upgrade = upgradeSummary(record, "0.2.10", "0.2.11", 0);
+    const upgrade = upgradeSummary(record, "0.2.11", "0.2.12", 0);
     assert.match(upgrade, /Database updates: none/u);
     assert.doesNotMatch(upgrade, /account-id|database-id|kv-id|\.sql/u);
     assert.ok(upgrade.length < 200);
-    assert.equal(readySummary("0.2.11"), "Wikimemory 0.2.11 is ready.\nDatabase: up to date.");
+    assert.equal(readySummary("0.2.12"), "Wikimemory 0.2.12 is ready.\nDatabase: up to date.");
     assert.equal(
-      readySummary("0.2.11", true),
-      "Wikimemory 0.2.11 is already ready.\nDatabase: up to date."
+      readySummary("0.2.12", true),
+      "Wikimemory 0.2.12 is already ready.\nDatabase: up to date."
     );
     const status = statusSummary({
       deployment: "scratch",
@@ -143,13 +143,13 @@ await describe("packaged upgrade", async () => {
       database: "scratch (database-id)",
       kvNamespace: "scratch-oauth (kv-id)",
       origin: record.origin,
-      recordedVersion: "0.2.11",
-      runningVersion: "0.2.11",
+      recordedVersion: "0.2.12",
+      runningVersion: "0.2.12",
       schemaVersion: "0004_internal_name.sql"
     });
     assert.equal(
       status,
-      `Wikimemory scratch: ready\nWeb app: ${record.origin}/\nMCP endpoint: ${record.origin}/mcp\nVersion: 0.2.11\nDatabase: up to date.`
+      `Wikimemory scratch: ready\nWeb app: ${record.origin}/\nMCP endpoint: ${record.origin}/mcp\nVersion: 0.2.12\nDatabase: up to date.`
     );
     assert.doesNotMatch(status, /\nURL:/u);
     assert.doesNotMatch(status, /account-id|database-id|kv-id|\.sql/u);
