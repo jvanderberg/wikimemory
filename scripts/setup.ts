@@ -298,7 +298,7 @@ export async function applyRemoteMigrations(databaseName: string): Promise<void>
   for (const migration of migrations) {
     if (applied.has(migration)) continue;
     const temporary = await mkdtemp(join(tmpdir(), "wikimemory-d1-migration-"));
-    if (!temporary.startsWith(`${tmpdir()}/wikimemory-d1-migration-`))
+    if (!temporary.startsWith(join(tmpdir(), "wikimemory-d1-migration-")))
       throw new Error("Unexpected migration temporary path");
     try {
       const bundlePath = join(temporary, migration);
