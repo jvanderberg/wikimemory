@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import { deploymentArguments, installArguments } from "./cli-options.ts";
-import { deploymentPaths, deploymentRecordFromConfig } from "./deployment-record.ts";
+import {
+  deploymentPaths,
+  deploymentRecordFromConfig,
+  requireInstalledDeployment
+} from "./deployment-record.ts";
+import { DEPLOYMENT_VERIFY_ATTEMPTS, deploymentVerifyDelay } from "./deployment-wait.ts";
 import { localConfig } from "./dev.ts";
 import { statusSummary } from "./status.ts";
 import { boundedOutputChunk, conciseDiagnostic, conciseError, runCommand } from "./subprocess.ts";
@@ -107,14 +115,14 @@ await describe("packaged upgrade", async () => {
   });
 
   await it("uses concise, user-facing upgrade and status summaries", () => {
-    const upgrade = upgradeSummary(record, "0.2.4", "0.2.5", 0);
+    const upgrade = upgradeSummary(record, "0.2.5", "0.2.6", 0);
     assert.match(upgrade, /Database updates: none/u);
     assert.doesNotMatch(upgrade, /account-id|database-id|kv-id|\.sql/u);
     assert.ok(upgrade.length < 200);
-    assert.equal(readySummary("0.2.5"), "Wikimemory 0.2.5 is ready.\nDatabase: up to date.");
+    assert.equal(readySummary("0.2.6"), "Wikimemory 0.2.6 is ready.\nDatabase: up to date.");
     assert.equal(
-      readySummary("0.2.5", true),
-      "Wikimemory 0.2.5 is already ready.\nDatabase: up to date."
+      readySummary("0.2.6", true),
+      "Wikimemory 0.2.6 is already ready.\nDatabase: up to date."
     );
     const status = statusSummary({
       deployment: "scratch",
@@ -123,13 +131,13 @@ await describe("packaged upgrade", async () => {
       database: "scratch (database-id)",
       kvNamespace: "scratch-oauth (kv-id)",
       origin: record.origin,
-      recordedVersion: "0.2.5",
-      runningVersion: "0.2.5",
+      recordedVersion: "0.2.6",
+      runningVersion: "0.2.6",
       schemaVersion: "0004_internal_name.sql"
     });
     assert.equal(
       status,
-      `Wikimemory scratch: ready\nURL: ${record.origin}\nVersion: 0.2.5\nDatabase: up to date.`
+      `Wikimemory scratch: ready\nURL: ${record.origin}\nVersion: 0.2.6\nDatabase: up to date.`
     );
     assert.doesNotMatch(status, /account-id|database-id|kv-id|\.sql/u);
   });
@@ -196,7 +204,53 @@ await describe("packaged upgrade", async () => {
       }
     );
     assert.equal(healthAttempts, 2);
-    assert.deepEqual(delays, [250]);
+    assert.deepEqual(delays, [1000]);
+  });
+
+  await it("allows Cloudflare edge propagation for roughly two minutes", () => {
+    assert.equal(DEPLOYMENT_VERIFY_ATTEMPTS, 25);
+    assert.deepEqual([0, 1, 2, 3, 20].map(deploymentVerifyDelay), [1000, 2000, 4000, 5000, 5000]);
+    const totalWait = Array.from({ length: DEPLOYMENT_VERIFY_ATTEMPTS - 1 }, (_, index) =>
+      deploymentVerifyDelay(index)
+    ).reduce((total, delay) => total + delay, 0);
+    assert.equal(totalWait, 112_000);
+  });
+
+  await it("accepts a release that appears after the old retry window", async () => {
+    let healthAttempts = 0;
+    await verifyRelease(
+      record.origin,
+      manifest,
+      (input) => {
+        const url =
+          input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+        if (url.endsWith("/health")) {
+          healthAttempts += 1;
+          return Promise.resolve(
+            Response.json({
+              status: "ok",
+              service: "wikimemory",
+              version: healthAttempts < 12 ? "0.1.0" : manifest.version
+            })
+          );
+        }
+        if (url.endsWith("/ready")) {
+          return Promise.resolve(
+            Response.json({
+              status: "ready",
+              service: "wikimemory",
+              version: manifest.version,
+              schemaVersion: manifest.schemaVersion
+            })
+          );
+        }
+        if (url.includes("/.well-known/oauth-protected-resource/mcp"))
+          return Promise.resolve(Response.json({ resource: `${record.origin}/mcp` }));
+        return Promise.resolve(new Response('<div id="root"></div>'));
+      },
+      () => Promise.resolve()
+    );
+    assert.equal(healthAttempts, 12);
   });
 
   await it("pins the package entrypoint, assets, account, and immutable resource IDs", () => {
@@ -258,6 +312,30 @@ await describe("packaged upgrade", async () => {
     } finally {
       if (previous === undefined) delete process.env["XDG_CONFIG_HOME"];
       else process.env["XDG_CONFIG_HOME"] = previous;
+    }
+  });
+
+  await it("replaces missing deployment file errors with actionable guidance", async () => {
+    const previous = process.env["XDG_CONFIG_HOME"];
+    const temporary = await mkdtemp(join(tmpdir(), "wikimemory-missing-deployment-test-"));
+    process.env["XDG_CONFIG_HOME"] = temporary;
+    try {
+      await assert.rejects(
+        requireInstalledDeployment("wikimemory"),
+        /No deployment named “wikimemory”\. Run wikimemory install first\./u
+      );
+      const scratch = join(temporary, "wikimemory", "deployments", "scratch");
+      await mkdir(scratch, { recursive: true });
+      await writeFile(join(scratch, "deployment.json"), "{}\n", "utf8");
+      await assert.rejects(
+        requireInstalledDeployment("wikimemory"),
+        /Installed: scratch\. Use --deployment NAME\./u
+      );
+      await assert.doesNotReject(requireInstalledDeployment("scratch"));
+    } finally {
+      if (previous === undefined) delete process.env["XDG_CONFIG_HOME"];
+      else process.env["XDG_CONFIG_HOME"] = previous;
+      await rm(temporary, { recursive: true, force: true });
     }
   });
 

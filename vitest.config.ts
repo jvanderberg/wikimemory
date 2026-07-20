@@ -31,12 +31,14 @@ export default defineConfig({
           browser: {
             enabled: true,
             headless: true,
-            provider: playwright({
-              launchOptions: {
-                channel: "chrome"
-              }
-            }),
-            instances: [{ browser: "chromium" }]
+            instances: [
+              {
+                browser: "chromium",
+                name: "chrome",
+                provider: playwright({ launchOptions: { channel: "chrome" } })
+              },
+              { browser: "webkit", name: "webkit", provider: playwright() }
+            ]
           }
         }
       }

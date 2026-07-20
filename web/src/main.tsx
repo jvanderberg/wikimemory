@@ -3,7 +3,15 @@ import type {
   PublicKeyCredentialRequestOptionsJSON
 } from "@simplewebauthn/browser";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import { StrictMode, useCallback, useEffect, useEffectEvent, useState } from "react";
+import {
+  Component,
+  type ReactNode,
+  StrictMode,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useState
+} from "react";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import "./styles.css";
@@ -718,11 +726,42 @@ export function App(): React.JSX.Element {
   return <AuthenticatedApp />;
 }
 
+interface AppErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface AppErrorBoundaryState {
+  failed: boolean;
+}
+
+export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
+  override state: AppErrorBoundaryState = { failed: false };
+
+  static getDerivedStateFromError(): AppErrorBoundaryState {
+    return { failed: true };
+  }
+
+  override render(): ReactNode {
+    if (this.state.failed)
+      return (
+        <main className="center">
+          <section className="panel">
+            <h1>Wikimemory</h1>
+            <p>This browser could not start Wikimemory. Reload the page or update Safari.</p>
+          </section>
+        </main>
+      );
+    return this.props.children;
+  }
+}
+
 const root = document.getElementById("root");
 if (root !== null) {
   createRoot(root).render(
     <StrictMode>
-      <App />
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
     </StrictMode>
   );
 }

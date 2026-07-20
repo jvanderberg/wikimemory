@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WIKIMEMORY_VERSION } from "../src/version.ts";
@@ -45,6 +45,9 @@ async function packageSmoke(): Promise<void> {
   try {
     const packed = await run("npm", ["pack", "--pack-destination", temporary], root);
     if (packed.exitCode !== 0) throw new Error(`npm pack failed: ${packed.stderr}`);
+    const builtIndex = await readFile(join(root, "dist", "web", "index.html"), "utf8");
+    if (!builtIndex.includes("<p>Loading…</p>"))
+      throw new Error("Packed web application has no pre-React loading fallback");
     const tarballName = (await readdir(temporary)).find((name) => name.endsWith(".tgz"));
     if (tarballName === undefined) throw new Error("npm pack did not create a tarball");
     const tarball = join(temporary, tarballName);
@@ -68,6 +71,13 @@ async function packageSmoke(): Promise<void> {
       if (args[0] === "--help" && !result.stdout.includes("Personal, passkey-protected memory"))
         throw new Error("Packed help does not explain what Wikimemory is");
     }
+    const missing = await invoke(["status"]);
+    if (
+      missing.exitCode === 0 ||
+      !missing.stderr.includes("No deployment named") ||
+      missing.stderr.includes("ENOENT")
+    )
+      throw new Error(`Packed missing-deployment guidance failed: ${missing.stderr}`);
     console.log(`Verified packed Wikimemory ${version.stdout.trim()} from an empty directory.`);
   } finally {
     await rm(temporary, { recursive: true, force: true });

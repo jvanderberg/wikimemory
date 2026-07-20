@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import process from "node:process";
 import { WIKIMEMORY_VERSION } from "../src/version.ts";
 import { deploymentArguments, installArguments } from "./cli-options.ts";
-import { deploymentPaths } from "./deployment-record.ts";
+import { deploymentPaths, requireInstalledDeployment } from "./deployment-record.ts";
 import { packageRoot } from "./package-root.ts";
 import { conciseError } from "./subprocess.ts";
 
@@ -37,6 +37,20 @@ async function main(): Promise<void> {
   }
   const parsed = deploymentArguments(args);
   const paths = deploymentPaths(parsed.deployment);
+  const requiresInstalledDeployment =
+    command === "recover" ||
+    command === "status" ||
+    command === "passkeys" ||
+    command === "connect" ||
+    command === "uninstall" ||
+    (command === "upgrade" && !parsed.remaining.includes("--record"));
+  if (requiresInstalledDeployment) {
+    const requirement =
+      command === "recover" || command === "passkeys" || command === "uninstall"
+        ? "config"
+        : "record";
+    await requireInstalledDeployment(parsed.deployment, requirement);
+  }
   if (command === "install" || command === "recover") {
     await mkdir(paths.directory, { recursive: true, mode: 0o700 });
     process.env["WIKIMEMORY_PACKAGE_ROOT"] = root;

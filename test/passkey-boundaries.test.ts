@@ -8,7 +8,7 @@ describe("passkey boundaries", () => {
     await expect(response.json()).resolves.toEqual({
       status: "ok",
       service: "wikimemory",
-      version: "0.2.5"
+      version: "0.2.6"
     });
   });
 
@@ -18,7 +18,7 @@ describe("passkey boundaries", () => {
     await expect(response.json()).resolves.toEqual({
       status: "ready",
       service: "wikimemory",
-      version: "0.2.5",
+      version: "0.2.6",
       schemaVersion: "0004_credential_bound_registration_tokens.sql"
     });
   });
@@ -29,7 +29,8 @@ describe("passkey boundaries", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-security-policy")).toContain("script-src 'self'");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-    expect(body).toContain('<div id="root"></div>');
+    expect(body).toContain('<div id="root">');
+    expect(body).toContain("<p>Loading…</p>");
     expect(body).toMatch(/<script[^>]+src="\/assets\//u);
     expect(body).not.toContain("Primary passkey");
     expect(body).not.toContain("Google");

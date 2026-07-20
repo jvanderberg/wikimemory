@@ -2,7 +2,7 @@ import { startAuthentication, startRegistration } from "@simplewebauthn/browser"
 import { expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
-import { App } from "../src/main";
+import { App, AppErrorBoundary } from "../src/main";
 
 vi.mock("@simplewebauthn/browser", () => ({
   startAuthentication: vi.fn(),
@@ -30,6 +30,23 @@ function session(environment: "local" | "production", authenticated = true): obj
 test.afterEach(() => {
   vi.restoreAllMocks();
   history.replaceState(null, "", "/");
+});
+
+test("shows a useful fallback when browser rendering fails", async () => {
+  function Broken(): React.JSX.Element {
+    throw new Error("Safari rendering failure");
+  }
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  await render(
+    <AppErrorBoundary>
+      <Broken />
+    </AppErrorBoundary>
+  );
+  await expect
+    .element(
+      page.getByText("This browser could not start Wikimemory. Reload the page or update Safari.")
+    )
+    .toBeVisible();
 });
 
 test("signs in as the local owner and browses documents", async () => {

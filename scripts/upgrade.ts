@@ -11,6 +11,7 @@ import {
   readDeploymentRecord,
   writeDeploymentRecord
 } from "./deployment-record.ts";
+import { DEPLOYMENT_VERIFY_ATTEMPTS, deploymentVerifyDelay } from "./deployment-wait.ts";
 import { packageRoot } from "./package-root.ts";
 import { type CommandResult, commandFailureMessage, runCommand } from "./subprocess.ts";
 
@@ -242,7 +243,7 @@ export async function verifyRelease(
   manifest: ReleaseManifest,
   fetcher: Fetcher = fetch,
   sleeper: Sleeper = sleep,
-  attempts = 6
+  attempts = DEPLOYMENT_VERIFY_ATTEMPTS
 ): Promise<void> {
   let finalError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -284,7 +285,7 @@ export async function verifyRelease(
       return;
     } catch (error) {
       finalError = error;
-      if (attempt + 1 < attempts) await sleeper(250 * 2 ** attempt);
+      if (attempt + 1 < attempts) await sleeper(deploymentVerifyDelay(attempt));
     }
   }
   const detail = finalError instanceof Error ? finalError.message : "Unknown verification failure";

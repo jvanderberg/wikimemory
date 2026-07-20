@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { WIKIMEMORY_VERSION } from "../src/version.ts";
 import { deploymentRecordFromConfig, writeDeploymentRecord } from "./deployment-record.ts";
+import { DEPLOYMENT_VERIFY_ATTEMPTS, deploymentVerifyDelay } from "./deployment-wait.ts";
 import { installedRecordPath, packageRoot, setupRuntime } from "./lifecycle-runtime.ts";
 import {
   type CommandResult,
@@ -389,7 +390,7 @@ export async function verifyEndpoint(
   expectedStatus: "ok" | "ready",
   fetcher: Fetcher = fetch,
   sleeper: Sleeper = sleep,
-  attempts = 6
+  attempts = DEPLOYMENT_VERIFY_ATTEMPTS
 ): Promise<void> {
   let finalDetail = "no response";
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -410,7 +411,7 @@ export async function verifyEndpoint(
     } catch (error) {
       finalDetail = error instanceof Error ? error.message : "Unknown request failure";
     }
-    if (attempt + 1 < attempts) await sleeper(250 * 2 ** attempt);
+    if (attempt + 1 < attempts) await sleeper(deploymentVerifyDelay(attempt));
   }
   throw new Error(`Deployment ${path} check failed after ${attempts} attempts: ${finalDetail}`);
 }

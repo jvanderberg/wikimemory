@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
@@ -60,6 +60,47 @@ export function deploymentPaths(deployment = "wikimemory"): DeploymentPaths {
     uninstallProgress: join(directory, "uninstall-progress.json"),
     passkeyClient: join(directory, "passkey-client.json")
   };
+}
+
+export async function requireInstalledDeployment(
+  deployment: string,
+  requirement: "record" | "config" = "record"
+): Promise<void> {
+  const requestedPaths = deploymentPaths(deployment);
+  const requested = requirement === "record" ? requestedPaths.record : requestedPaths.config;
+  try {
+    await access(requested);
+    return;
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  }
+  const configRoot = process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
+  const deploymentsRoot = join(configRoot, "wikimemory", "deployments");
+  let installed: string[] = [];
+  try {
+    const entries = (await readdir(deploymentsRoot, { withFileTypes: true })).filter(
+      (entry) => entry.isDirectory() && DEPLOYMENT_NAME.test(entry.name)
+    );
+    const candidates = await Promise.all(
+      entries.map(async (entry): Promise<string | null> => {
+        try {
+          await access(join(deploymentsRoot, entry.name, "deployment.json"));
+          return entry.name;
+        } catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+          throw error;
+        }
+      })
+    );
+    installed = candidates.filter((name): name is string => name !== null).sort();
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  }
+  if (installed.length === 0)
+    throw new Error(`No deployment named “${deployment}”. Run wikimemory install first.`);
+  throw new Error(
+    `No deployment named “${deployment}”. Installed: ${installed.join(", ")}. Use --deployment NAME.`
+  );
 }
 
 export function deploymentRecordFromConfig(
