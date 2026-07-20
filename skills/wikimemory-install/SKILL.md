@@ -26,7 +26,7 @@ For Claude on phone, configure the same HTTPS endpoint as a custom connector in 
 ## Deploy a new instance
 
 1. Confirm the user controls a Cloudflare account. Deployment changes external state, so show the exact target account, Worker name, D1 database name, and KV namespace before applying it.
-2. Run `npx --yes wikimemory install`, or the repository's guided TypeScript workflow for
+2. Run `npx wikimemory install`, or the repository's guided TypeScript workflow for
    maintainer testing. Use `--deployment NAME` for a
    non-default installation. Do not reimplement provisioning steps ad hoc.
 3. Stop after the installer prints the one-time URL. The human must open it and create the owner passkey; never open, copy, or retain that URL for them.
@@ -37,7 +37,7 @@ If a provisioning step fails after the config is created, rerun the documented
 `--resume` workflow. It must require the installer's successful-preflight state.
 Never work around a remote resource name collision by deploying over it.
 
-For lost-passkey recovery, use `npx --yes wikimemory recover` or the documented repository
+For lost-passkey recovery, use `npx wikimemory recover` or the documented repository
 fallback.
 It rotates the bootstrap hash and prints a one-use registration URL. Existing
 credentials remain active until the replacement verifies; successful recovery then
@@ -53,7 +53,7 @@ If production deployment is marked incomplete in the installation guide, stop af
 
 ## Update an existing instance
 
-1. Run `npx --yes wikimemory status` first, then use `npx --yes wikimemory upgrade` or
+1. Run `npx wikimemory status` first, then use `npx wikimemory upgrade` or
    `npm run upgrade` for maintainer testing from this repository.
 2. Let the CLI load the non-secret deployment record written by setup and show the
    exact account, Worker, D1 database, KV namespace, origin, version transition, and
@@ -70,12 +70,12 @@ An ordinary update must not run `setup -- --resume` or `setup -- --recover`, rot
 
 ## Manage an installed instance
 
-- Run `npx --yes wikimemory dev` for package-owned local D1/KV/Worker testing; state is
+- Run `npx wikimemory dev` for package-owned local D1/KV/Worker testing; state is
   retained under the current directory's `.wikimemory/dev`.
-- Run `npx --yes wikimemory passkeys list|add|revoke` for owner credential management.
-- Run `npx --yes wikimemory connect codex|claude` only when the user explicitly asks to
+- Run `npx wikimemory passkeys list|add|revoke` for owner credential management.
+- Run `npx wikimemory connect codex|claude` only when the user explicitly asks to
   change that client's MCP configuration.
-- Run `npx --yes wikimemory skills install codex|claude` to install version-matched skills.
-- Preview with `npx --yes wikimemory uninstall`; apply only after exact-target review and
+- Run `npx wikimemory skills install codex|claude` to install version-matched skills.
+- Preview with `npx wikimemory uninstall`; apply only after exact-target review and
   explicit destructive confirmation. Remind the user to remove client-owned MCP
   registrations separately.

@@ -1,58 +1,43 @@
 # Installation
 
-V1 is a personal Cloudflare Worker protected by the owner's passkey. Local
-development needs no cloud account. Production needs Node.js 22+, npm, a
-Cloudflare account, and a device or password manager that supports passkeys. It
-does not need a Google Cloud project or OAuth application.
+Wikimemory deploys to your Cloudflare account and uses your passkey for owner
+access. Local development needs no cloud account. Production needs Node.js 22+,
+npm, a Cloudflare account, and a device or password manager that supports passkeys.
+It does not need a Google Cloud project or OAuth application.
 
-## Packaged command line
+## Command line
 
-The npm package provides the complete lifecycle without a source checkout:
+Use the command line to install, manage, connect, and remove Wikimemory:
 
 ```sh
-npx --yes wikimemory install
-npx --yes wikimemory status
-npx --yes wikimemory upgrade
-npx --yes wikimemory passkeys list
-npx --yes wikimemory connect codex
-npx --yes wikimemory skills install codex
-npx --yes wikimemory uninstall
+npx wikimemory install
+npx wikimemory status
+npx wikimemory upgrade
+npx wikimemory passkeys list
+npx wikimemory connect codex
+npx wikimemory skills install codex
+npx wikimemory uninstall
 ```
 
 Each installation stores non-secret lifecycle state under
 `~/.config/wikimemory/deployments/NAME/`. Use `--deployment NAME` consistently for
-parallel installations. Worker source, React assets, migrations, and skills come
-from the exact npm release, not the current directory.
+parallel installations. Each command uses the files from the selected Wikimemory
+release.
 
 ## Run locally
 
-Without a checkout:
-
 ```sh
-npx --yes wikimemory dev
+npx wikimemory dev
 ```
 
 This retains local state under `./.wikimemory/dev/`. Extra arguments are passed to
-Wrangler, for example `npx --yes wikimemory dev --port 8790`.
+Wrangler, for example `npx wikimemory dev --port 8790`.
 
-From a checkout:
-
-```sh
-npm ci
-npm run dev
-```
-
-Wrangler applies migrations to a repository-local Miniflare D1 database and starts
-the Worker at `http://127.0.0.1:8787`. Open `/app` and continue as the clearly marked
-fake local owner. Only owner authentication is replaced locally: Wikimemory's OAuth
+Wrangler applies migrations to a local Miniflare D1 database and starts the Worker
+at `http://127.0.0.1:8787`. Open `/app` and continue as the clearly marked fake local
+owner. Only owner authentication is replaced locally: Wikimemory's OAuth
 authorization code, PKCE, access/refresh tokens, scopes, and MCP transport remain
-real.
-
-In a second terminal, exercise the local OAuth and MCP flow:
-
-```sh
-npm run smoke:local
-```
+real. Contributors can find the repository workflows in the [testing guide](testing.md).
 
 Passkeys also work on `localhost`, but the fixed local identity is the default test
 path so routine development does not depend on a particular browser or authenticator.
@@ -68,14 +53,7 @@ npx wrangler login
 Deploy from any directory with:
 
 ```sh
-npx --yes wikimemory install
-```
-
-From a clean checkout, the maintainer equivalent is:
-
-```sh
-npm ci
-npm run setup
+npx wikimemory install
 ```
 
 Before changing anything, the installer displays the active Cloudflare identity and
@@ -89,7 +67,7 @@ the exact Worker, D1, and KV names and asks for confirmation. It then:
    Cloudflare Worker secret, and redeploys with the canonical origin;
 6. verifies both `/health` and the D1-backed `/ready` check;
 7. writes a non-secret deployment record under
-   `~/.config/wikimemory/deployments/` for checkout-free upgrades; and
+   `~/.config/wikimemory/deployments/` for later upgrades; and
 8. prints the one-time passkey setup URL and client commands.
 
 On a Cloudflare account that has never deployed a Worker, Cloudflare first requires
@@ -112,7 +90,7 @@ successful registration.
 Custom resource names are optional:
 
 ```sh
-npm run setup -- --worker-name my-memory --database-name my-memory --kv-name my-memory-oauth
+npx wikimemory install --worker-name my-memory --database-name my-memory --kv-name my-memory-oauth
 ```
 
 If Wrangler exposes more than one Cloudflare account, the installer asks which one
@@ -131,17 +109,17 @@ remote resources, and all uploads use Wrangler strict mode.
 reviewed the displayed defaults. The installer does not delete or replace an
 existing production configuration.
 
-## Packaged upgrades
+## Upgrades
 
-Upgrade without a source checkout:
+Upgrade the selected installation:
 
 ```sh
-npx --yes wikimemory upgrade
+npx wikimemory upgrade
 ```
 
 The command loads the deployment record written by setup, verifies the authenticated
 Cloudflare account and immutable Worker/D1/KV targets, and compares both the running
-application version and the D1 migration history with the packaged release manifest.
+application version and the D1 migration history with the selected release.
 It shows the exact targets, version transition, and pending migrations before asking
 for confirmation. It then applies only the missing ordered migration suffix, deploys
 the package's Worker and compiled React assets, and verifies health, readiness, OAuth
@@ -156,34 +134,22 @@ setup secret, replaces passkeys, seeds fixtures, or deletes memory.
 Custom or parallel installations use the Worker name as the deployment-record name:
 
 ```sh
-npx --yes wikimemory upgrade --deployment my-memory
+npx wikimemory upgrade --deployment my-memory
 ```
 
 For testing an explicit record without changing the default, use
 `--record /absolute/path/to/record.json`. `--yes` accepts the displayed plan for
 noninteractive release automation.
 
-The identical maintainer command from this checkout is:
-
-```sh
-npm run upgrade
-```
-
-Use `npx --yes wikimemory status` to verify the recorded and running application versions,
+Use `npx wikimemory status` to verify the recorded and running application versions,
 schema version, OAuth discovery, and React shell.
 
 ## Passkey recovery
 
-Cloudflare account control is the recovery authority. The packaged command is:
+Cloudflare account control is the recovery authority. Start recovery with:
 
 ```sh
-npx --yes wikimemory recover
-```
-
-From the original checkout, the equivalent command is:
-
-```sh
-npm run setup -- --recover
+npx wikimemory recover
 ```
 
 The command asks for confirmation, writes a new hash to the Worker secret store, and
@@ -202,41 +168,36 @@ The owner CLI performs the same operations. Each command opens a browser and req
 the owner passkey; it does not use Cloudflare credentials:
 
 ```sh
-npm run passkeys -- list
-npm run passkeys -- add --name "Phone"
-npm run passkeys -- revoke CREDENTIAL_REF
+npx wikimemory passkeys list
+npx wikimemory passkeys add --name "Phone"
+npx wikimemory passkeys revoke CREDENTIAL_REF
 ```
-
-The checkout-free equivalents are `npx --yes wikimemory passkeys list`,
-`npx --yes wikimemory passkeys add --name "Phone"`, and
-`npx --yes wikimemory passkeys revoke CREDENTIAL_REF`.
 
 The add command opens an expiring one-use registration page bound to the passkey that
 authorized it. Revoking that credential invalidates its unused registration links
 and blocks its browser sessions; recovery invalidates every outstanding registration
-link. Use `setup -- --recover` only when no remaining passkey is available or all
+link. Use `npx wikimemory recover` only when no remaining passkey is available or all
 existing credentials should be replaced.
 
 ## Uninstall a test deployment
 
-Preview the exact resources recorded in the ignored production config:
+Preview the exact cloud resources recorded for the installation:
 
 ```sh
-npm run uninstall
+npx wikimemory uninstall
 ```
 
-Without a checkout, use `npx --yes wikimemory uninstall`. It reads the same exact targets
-from the per-deployment state directory.
+It reads the exact targets from the per-deployment state directory.
 
 Preview mode does not call any deletion command. To remove the deployment, run:
 
 ```sh
-npm run uninstall -- --apply
+npx wikimemory uninstall --apply
 ```
 
 The workflow requires typing the exact Worker name, then deletes that Worker, its
 recorded KV namespace, and its recorded D1 database before removing the local
-production config and installer state. D1 deletion permanently destroys the remote
+deployment record and installer state. D1 deletion permanently destroys the remote
 memory and cannot be recovered. For controlled automation,
 `--apply --confirm WORKER_NAME` provides the same exact-name guard. Delete targets
 always come from recorded resource IDs and names, never defaults or uninstall
@@ -275,7 +236,7 @@ Approve the MCP client in the browser with the owner passkey. Normal agent
 connections request read/write scopes; use an administrative connection only when
 restore tools are needed.
 
-The packaged shortcut is `npx --yes wikimemory connect codex`.
+You can perform both steps with `npx wikimemory connect codex`.
 
 ## Connect Claude Code
 
@@ -286,7 +247,7 @@ claude mcp add --transport http --scope user wikimemory https://YOUR_WORKER_HOST
 Inside Claude Code, run `/mcp`, select Wikimemory, and approve with the passkey.
 Claude stores and refreshes its Wikimemory OAuth tokens.
 
-The packaged shortcut is `npx --yes wikimemory connect claude`.
+You can add the server with `npx wikimemory connect claude`.
 
 ### Recover a stale connector session
 
@@ -316,24 +277,12 @@ reach a local `127.0.0.1` Worker.
 Install version-matched copies from the package, then restart the client:
 
 ```sh
-npx --yes wikimemory skills install codex
-npx --yes wikimemory skills install claude
+npx wikimemory skills install codex
+npx wikimemory skills install claude
 ```
 
-From a checkout, symlink the repo skills for Claude:
-
-```sh
-mkdir -p ~/.claude/skills
-ln -sfn "$PWD/skills/wikimemory-recall" ~/.claude/skills/wikimemory-recall
-ln -sfn "$PWD/skills/wikimemory-ingest" ~/.claude/skills/wikimemory-ingest
-ln -sfn "$PWD/skills/wikimemory-lint" ~/.claude/skills/wikimemory-lint
-ln -sfn "$PWD/skills/wikimemory-install" ~/.claude/skills/wikimemory-install
-```
-
-For Codex, copy or symlink the same directories into `~/.codex/skills`.
-Repository-local testing can use `.agents/skills` and `.claude/skills`. Restart the
-client after adding skills. If skills are unavailable, paste the
+Restart the client after adding skills. If skills are unavailable, paste the
 [manual agent contract](manual-agent-instructions.md) into a session.
 
 Archive import and automated `llmwiki` migration are intentionally unsupported in
-V1. Do not upload a personal SQLite database to the Worker.
+Wikimemory. Do not upload a personal SQLite database to the Worker.

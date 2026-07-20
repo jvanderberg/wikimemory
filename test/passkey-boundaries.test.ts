@@ -8,7 +8,7 @@ describe("passkey boundaries", () => {
     await expect(response.json()).resolves.toEqual({
       status: "ok",
       service: "wikimemory",
-      version: "0.2.8"
+      version: "0.2.9"
     });
   });
 
@@ -18,7 +18,7 @@ describe("passkey boundaries", () => {
     await expect(response.json()).resolves.toEqual({
       status: "ready",
       service: "wikimemory",
-      version: "0.2.8",
+      version: "0.2.9",
       schemaVersion: "0004_credential_bound_registration_tokens.sql"
     });
   });
