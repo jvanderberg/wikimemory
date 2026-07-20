@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { deploymentRecordPath, readDeploymentRecord } from "./deployment-record.ts";
+import { isReactApplicationShell } from "./web-shell.ts";
 
 const HEALTH_SCHEMA = z.object({
   status: z.literal("ok"),
@@ -42,7 +43,7 @@ export async function deploymentStatus(deployment: string): Promise<StatusResult
   if (health.version !== ready.version) throw new Error("Health and schema versions disagree");
   if (discovery.resource !== `${record.origin}/mcp`)
     throw new Error("OAuth discovery reports an unexpected MCP resource");
-  if (!(await appResponse.text()).includes('<div id="root"></div>'))
+  if (!isReactApplicationShell(await appResponse.text()))
     throw new Error("React application shell verification failed");
   return {
     deployment,

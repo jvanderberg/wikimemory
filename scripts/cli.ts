@@ -38,12 +38,13 @@ async function main(): Promise<void> {
   const parsed = deploymentArguments(args);
   const paths = deploymentPaths(parsed.deployment);
   const requiresInstalledDeployment =
-    command === "recover" ||
-    command === "status" ||
-    command === "passkeys" ||
-    command === "connect" ||
-    command === "uninstall" ||
-    (command === "upgrade" && !parsed.remaining.includes("--record"));
+    !parsed.remaining.includes("--help") &&
+    (command === "recover" ||
+      command === "status" ||
+      command === "passkeys" ||
+      command === "connect" ||
+      command === "uninstall" ||
+      (command === "upgrade" && !parsed.remaining.includes("--record")));
   if (requiresInstalledDeployment) {
     const requirement =
       command === "recover" || command === "passkeys" || command === "uninstall"

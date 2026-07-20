@@ -27,6 +27,7 @@ import {
   validateRemoteTargets,
   verifyRelease
 } from "./upgrade.ts";
+import { isReactApplicationShell } from "./web-shell.ts";
 
 const manifest = {
   version: "0.2.0",
@@ -48,6 +49,8 @@ const record = {
   origin: "https://my-memory.example.workers.dev",
   installedVersion: "0.1.0"
 } as const;
+
+const populatedReactShell = `<!doctype html><div id="root"><p>Loading…</p></div><script type="module" crossorigin src="/assets/index-new.js"></script>`;
 
 await describe("packaged upgrade", async () => {
   await it("parses only the documented upgrade options", () => {
@@ -114,15 +117,24 @@ await describe("packaged upgrade", async () => {
     assert.equal(deploymentIsCurrent(manifest.version, manifest, [pendingMigration]), false);
   });
 
+  await it("accepts a populated React root and still requires the module asset", () => {
+    assert.equal(isReactApplicationShell(populatedReactShell), true);
+    assert.equal(isReactApplicationShell('<div id="root"><p>Loading…</p></div>'), false);
+    assert.equal(
+      isReactApplicationShell('<script type="module" src="/assets/index.js"></script>'),
+      false
+    );
+  });
+
   await it("uses concise, user-facing upgrade and status summaries", () => {
-    const upgrade = upgradeSummary(record, "0.2.5", "0.2.6", 0);
+    const upgrade = upgradeSummary(record, "0.2.6", "0.2.7", 0);
     assert.match(upgrade, /Database updates: none/u);
     assert.doesNotMatch(upgrade, /account-id|database-id|kv-id|\.sql/u);
     assert.ok(upgrade.length < 200);
-    assert.equal(readySummary("0.2.6"), "Wikimemory 0.2.6 is ready.\nDatabase: up to date.");
+    assert.equal(readySummary("0.2.7"), "Wikimemory 0.2.7 is ready.\nDatabase: up to date.");
     assert.equal(
-      readySummary("0.2.6", true),
-      "Wikimemory 0.2.6 is already ready.\nDatabase: up to date."
+      readySummary("0.2.7", true),
+      "Wikimemory 0.2.7 is already ready.\nDatabase: up to date."
     );
     const status = statusSummary({
       deployment: "scratch",
@@ -131,13 +143,13 @@ await describe("packaged upgrade", async () => {
       database: "scratch (database-id)",
       kvNamespace: "scratch-oauth (kv-id)",
       origin: record.origin,
-      recordedVersion: "0.2.6",
-      runningVersion: "0.2.6",
+      recordedVersion: "0.2.7",
+      runningVersion: "0.2.7",
       schemaVersion: "0004_internal_name.sql"
     });
     assert.equal(
       status,
-      `Wikimemory scratch: ready\nURL: ${record.origin}\nVersion: 0.2.6\nDatabase: up to date.`
+      `Wikimemory scratch: ready\nURL: ${record.origin}\nVersion: 0.2.7\nDatabase: up to date.`
     );
     assert.doesNotMatch(status, /account-id|database-id|kv-id|\.sql/u);
   });
@@ -196,7 +208,7 @@ await describe("packaged upgrade", async () => {
         if (url.includes("/.well-known/oauth-protected-resource/mcp")) {
           return Promise.resolve(Response.json({ resource: `${record.origin}/mcp` }));
         }
-        return Promise.resolve(new Response('<div id="root"></div>'));
+        return Promise.resolve(new Response(populatedReactShell));
       },
       (milliseconds) => {
         delays.push(milliseconds);
@@ -246,7 +258,7 @@ await describe("packaged upgrade", async () => {
         }
         if (url.includes("/.well-known/oauth-protected-resource/mcp"))
           return Promise.resolve(Response.json({ resource: `${record.origin}/mcp` }));
-        return Promise.resolve(new Response('<div id="root"></div>'));
+        return Promise.resolve(new Response(populatedReactShell));
       },
       () => Promise.resolve()
     );

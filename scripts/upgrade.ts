@@ -14,6 +14,7 @@ import {
 import { DEPLOYMENT_VERIFY_ATTEMPTS, deploymentVerifyDelay } from "./deployment-wait.ts";
 import { packageRoot } from "./package-root.ts";
 import { type CommandResult, commandFailureMessage, runCommand } from "./subprocess.ts";
+import { isReactApplicationShell } from "./web-shell.ts";
 
 const PACKAGE_ROOT = packageRoot();
 const DEPLOYMENT_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/u;
@@ -280,7 +281,7 @@ export async function verifyRelease(
       if (!discovery.ok)
         throw new Error(`OAuth protected-resource discovery returned HTTP ${discovery.status}`);
       const app = await fetcher(`${origin}/app`, { redirect: "error" });
-      if (!app.ok || !(await app.text()).includes('<div id="root"></div>'))
+      if (!app.ok || !isReactApplicationShell(await app.text()))
         throw new Error("React application verification failed");
       return;
     } catch (error) {

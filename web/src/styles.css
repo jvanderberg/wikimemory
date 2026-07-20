@@ -8,6 +8,10 @@
   --accent: #176b52;
   --danger: #a83a3a;
 }
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 * {
   box-sizing: border-box;
 }

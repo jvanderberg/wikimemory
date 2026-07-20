@@ -97,6 +97,7 @@ test("shows production sign-in and a session loading error", async () => {
   await expect
     .element(signedOut.getByRole("link", { name: "Continue with passkey" }))
     .toHaveAttribute("href", "/app/login");
+  await expect.poll(() => getComputedStyle(document.body).margin).toBe("0px");
 
   await signedOut.unmount();
   vi.mocked(fetch).mockResolvedValue(response({ error: "session unavailable" }, 503));
