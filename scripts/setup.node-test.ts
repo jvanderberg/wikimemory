@@ -20,6 +20,7 @@ import {
   withWebAssets,
   workersDevRegistrationRequired
 } from "./setup.ts";
+import { attachedTerminalSpawnOptions } from "./subprocess.ts";
 import {
   clientRemovalInstructions,
   parseUninstallOptions,
@@ -129,6 +130,10 @@ await describe("guided installer", async () => {
     );
   });
 
+  await it("attaches every terminal stream for first-Worker onboarding", () => {
+    assert.deepEqual(attachedTerminalSpawnOptions(), { stdio: "inherit" });
+  });
+
   await it("distinguishes a missing Worker from an existing version-only Worker", () => {
     assert.equal(
       deploymentListIndicatesExisting({
@@ -209,7 +214,7 @@ await describe("guided installer", async () => {
         return Promise.resolve(
           attempts === 1
             ? new Response("starting", { status: 500 })
-            : Response.json({ status: "ok", service: "wikimemory", version: "0.2.7" })
+            : Response.json({ status: "ok", service: "wikimemory", version: "0.2.8" })
         );
       },
       (milliseconds) => {

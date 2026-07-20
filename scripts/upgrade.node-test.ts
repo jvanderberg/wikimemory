@@ -127,14 +127,14 @@ await describe("packaged upgrade", async () => {
   });
 
   await it("uses concise, user-facing upgrade and status summaries", () => {
-    const upgrade = upgradeSummary(record, "0.2.6", "0.2.7", 0);
+    const upgrade = upgradeSummary(record, "0.2.7", "0.2.8", 0);
     assert.match(upgrade, /Database updates: none/u);
     assert.doesNotMatch(upgrade, /account-id|database-id|kv-id|\.sql/u);
     assert.ok(upgrade.length < 200);
-    assert.equal(readySummary("0.2.7"), "Wikimemory 0.2.7 is ready.\nDatabase: up to date.");
+    assert.equal(readySummary("0.2.8"), "Wikimemory 0.2.8 is ready.\nDatabase: up to date.");
     assert.equal(
-      readySummary("0.2.7", true),
-      "Wikimemory 0.2.7 is already ready.\nDatabase: up to date."
+      readySummary("0.2.8", true),
+      "Wikimemory 0.2.8 is already ready.\nDatabase: up to date."
     );
     const status = statusSummary({
       deployment: "scratch",
@@ -143,13 +143,13 @@ await describe("packaged upgrade", async () => {
       database: "scratch (database-id)",
       kvNamespace: "scratch-oauth (kv-id)",
       origin: record.origin,
-      recordedVersion: "0.2.7",
-      runningVersion: "0.2.7",
+      recordedVersion: "0.2.8",
+      runningVersion: "0.2.8",
       schemaVersion: "0004_internal_name.sql"
     });
     assert.equal(
       status,
-      `Wikimemory scratch: ready\nURL: ${record.origin}\nVersion: 0.2.7\nDatabase: up to date.`
+      `Wikimemory scratch: ready\nURL: ${record.origin}\nVersion: 0.2.8\nDatabase: up to date.`
     );
     assert.doesNotMatch(status, /account-id|database-id|kv-id|\.sql/u);
   });

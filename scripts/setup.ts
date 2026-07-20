@@ -15,6 +15,7 @@ import {
   type CommandResult,
   commandFailureMessage,
   conciseError,
+  runAttachedCommand,
   runCommand
 } from "./subprocess.ts";
 
@@ -170,10 +171,7 @@ async function run(
 }
 
 async function runInteractive(command: string, args: string[]): Promise<void> {
-  const result = await runCommand(command, args, {
-    forwardLimitBytes: 4000,
-    inheritStdin: true
-  });
+  const result = await runAttachedCommand(command, args);
   if (result.exitCode !== 0)
     throw new Error(commandFailureMessage(cloudflareOperation(args), result));
 }

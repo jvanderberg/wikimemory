@@ -14,6 +14,10 @@ export interface CommandOptions {
   inheritStdin?: boolean;
 }
 
+export function attachedTerminalSpawnOptions(): { stdio: "inherit" } {
+  return { stdio: "inherit" };
+}
+
 interface ForwardState {
   remaining: number;
   suppressed: boolean;
@@ -77,6 +81,16 @@ export async function runCommand(
     });
     if (child.stdin !== null)
       child.stdin.end(options.input === undefined ? undefined : `${options.input}\n`);
+  });
+}
+
+export async function runAttachedCommand(command: string, args: string[]): Promise<CommandResult> {
+  return await new Promise<CommandResult>((resolve, reject) => {
+    const child = spawn(command, args, attachedTerminalSpawnOptions());
+    child.on("error", reject);
+    child.on("close", (code) => {
+      resolve({ stdout: "", stderr: "", exitCode: code ?? -1 });
+    });
   });
 }
 
