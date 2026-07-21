@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
 import process from "node:process";
 import { stripVTControlCharacters } from "node:util";
+import spawn from "cross-spawn";
 
 export interface CommandResult {
   stdout: string;
