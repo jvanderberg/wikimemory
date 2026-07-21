@@ -1,6 +1,7 @@
 import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import spawn from "cross-spawn";
 import { WIKIMEMORY_VERSION } from "../src/version.ts";
 
@@ -69,7 +70,7 @@ async function packageSmoke(): Promise<void> {
     await writeFile(join(developmentSkill, "SKILL.md"), "development\n");
     await symlink(developmentSkill, join(installedSkills, "wikimemory-recall"), directoryLinkType);
     const installScript = `import { replaceSkillDirectories } from ${JSON.stringify(
-      join(packedRoot, "dist", "npm-cli", "scripts", "client-tools.js")
+      pathToFileURL(join(packedRoot, "dist", "npm-cli", "scripts", "client-tools.js")).href
     )}; await replaceSkillDirectories(${JSON.stringify(packedRoot)}, ${JSON.stringify(
       installedSkills
     )}, ["wikimemory-recall"]);`;
