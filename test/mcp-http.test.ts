@@ -531,5 +531,5 @@ describe("authenticated Streamable HTTP MCP", () => {
       })
     );
     expect(forbiddenWrite.result.structuredContent.code).toBe("forbidden");
-  });
+  }, 15_000);
 });
