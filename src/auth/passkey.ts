@@ -22,7 +22,7 @@ import { MemoryService } from "../domain/memory-service";
 import type { ActorContext, MemoryScope, OwnerContext } from "../domain/types";
 import type { Env } from "../env";
 import { PASSKEY_OWNER_ID, registrationToken } from "./passkey-management";
-import { bindAuthorizationResource } from "./resource";
+import { bindWikimemoryAuthorizationResource } from "./resource";
 
 const PRINCIPAL_ID = PASSKEY_OWNER_ID;
 const WORKSPACE_ID = "primary-workspace";
@@ -142,10 +142,6 @@ function relyingParty(env: RelyingPartyEnv): { origin: string; rpID: string } {
   if (env.APP_BASE_URL === undefined) throw new Error("APP_BASE_URL is required");
   const url = new URL(env.APP_BASE_URL);
   return { origin: url.origin, rpID: url.hostname };
-}
-
-function mcpResource(env: Env): string {
-  return new URL("/mcp", relyingParty(env).origin).toString();
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {
@@ -570,7 +566,9 @@ export async function beginPasskeyAuthorization(
   const parsedAuth =
     kind === "mcp" ? await env.OAUTH_PROVIDER.parseAuthRequest(request) : undefined;
   const auth =
-    parsedAuth === undefined ? undefined : bindAuthorizationResource(parsedAuth, mcpResource(env));
+    parsedAuth === undefined
+      ? undefined
+      : bindWikimemoryAuthorizationResource(parsedAuth, env.APP_BASE_URL);
   const requestedScopes = auth === undefined ? undefined : scopes(auth);
   const client = auth === undefined ? null : await env.OAUTH_PROVIDER.lookupClient(auth.clientId);
   const credentials = await credentialRows(env);
@@ -699,7 +697,7 @@ export async function verifyPasskeyAuthorization(
       throw new OAuthError("invalid_request", {
         description: "MCP authorization state is missing"
       });
-    const auth = bindAuthorizationResource(authRequest(payload.auth), mcpResource(env));
+    const auth = bindWikimemoryAuthorizationResource(authRequest(payload.auth), env.APP_BASE_URL);
     const granted = scopes(auth);
     const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
       request: auth,

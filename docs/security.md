@@ -122,8 +122,9 @@ authorization headers.
 - Local D1 state lives under an ignored repository directory.
 - Test exports and credentials use unmistakably fake data.
 
-Wikimemory exposes no archive import route. One-off migration is an unsupported local
-owner operation and receives no agent-accessible secret-scan override.
+The versioned CRUD API supports owner-authorized archive and custom imports. All writes
+require `memory:admin`; ordinary MCP `memory:write` authority cannot use it. ZIP import
+accepts validated Wikimemory entities and never executes SQL.
 
 ## Purge mechanism
 

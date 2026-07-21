@@ -1,0 +1,98 @@
+openapi: 3.1.0
+info: { title: Wikimemory CRUD API, version: 1.0.0 }
+servers: [{ url: "https://YOUR_WORKER_HOST/api/v1" }]
+security: [{ oauth: [memory:read] }]
+paths:
+  /documents:
+    get: { operationId: listDocuments, responses: { "200": { description: Identity page } } }
+    post:
+      operationId: createDocument
+      security: [{ oauth: [memory:admin] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/Document" } } } }
+      responses: { "201": { description: Created } }
+  /documents/{slug}:
+    parameters: [{ name: slug, in: path, required: true, schema: { type: string } }]
+    get: { operationId: getDocument, responses: { "200": { description: Identity and current revision } } }
+    put:
+      operationId: appendDocumentRevision
+      security: [{ oauth: [memory:admin] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/Revision" } } } }
+      responses: { "201": { description: Immutable revision appended } }
+    delete:
+      operationId: purgeDocument
+      security: [{ oauth: [memory:admin] }]
+      parameters: [{ name: confirm, in: query, required: true, schema: { type: string } }]
+      responses: { "200": { description: Purged } }
+  /documents/{slug}/revisions:
+    parameters: [{ name: slug, in: path, required: true, schema: { type: string } }]
+    get: { operationId: listRevisions, responses: { "200": { description: Ascending revision page } } }
+    post:
+      operationId: appendRevision
+      security: [{ oauth: [memory:admin] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/Revision" } } } }
+      responses: { "201": { description: Appended } }
+  /documents/{slug}/revisions/{revisionId}:
+    get:
+      operationId: getRevision
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: revisionId, in: path, required: true, schema: { type: string } }
+      responses: { "200": { description: Complete revision } }
+  /metadata:
+    get: { operationId: listCurrentMetadata, responses: { "200": { description: Current metadata } } }
+  /links:
+    get: { operationId: listCurrentLinks, responses: { "200": { description: Current links } } }
+components:
+  securitySchemes:
+    oauth:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: /authorize
+          tokenUrl: /oauth/token
+          scopes: { memory:read: Read memory, memory:admin: Administrative CRUD }
+  schemas:
+    Document:
+      type: object
+      additionalProperties: false
+      required: [slug, type]
+      properties:
+        documentId: { type: string }
+        slug: { type: string, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        type: { enum: [system, project, topic, source, note] }
+        createdAt: { type: string, format: date-time }
+    Revision:
+      type: object
+      additionalProperties: false
+      required: [operationId, revisionNumber, title, body, createdAt, reason, metadata, links]
+      properties:
+        operationId: { type: string }
+        revisionId: { type: string }
+        revisionNumber: { type: integer, minimum: 1 }
+        parentRevisionId: { type: [string, "null"] }
+        title: { type: string, maxLength: 300 }
+        body: { type: string, description: At most 262144 UTF-8 bytes }
+        summary: { type: [string, "null"], maxLength: 1000 }
+        createdAt: { type: string, format: date-time }
+        sourceActor: { type: [string, "null"], maxLength: 200 }
+        reason: { type: string, maxLength: 500 }
+        restoredFromRevisionId: { type: [string, "null"], maxLength: 200 }
+        metadata: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/Metadata" } }
+        links: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/Link" } }
+    Metadata:
+      type: object
+      additionalProperties: false
+      required: [key, value, cardinality]
+      properties:
+        key: { type: string, pattern: "^[a-z][a-z0-9_]{0,99}$" }
+        value: { type: string, maxLength: 4096 }
+        cardinality: { enum: [singleton, multi] }
+    Link:
+      type: object
+      additionalProperties: false
+      required: [kind, targetSlug, origin]
+      properties:
+        kind: { enum: [related, part_of, supersedes, cites, contradicts] }
+        targetSlug: { type: string, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        targetDocumentId: { type: [string, "null"] }
+        origin: { enum: [explicit, body] }

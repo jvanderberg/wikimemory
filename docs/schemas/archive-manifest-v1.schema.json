@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jvanderberg/wikimemory/blob/main/docs/schemas/archive-manifest-v1.schema.json",
+  "title": "Wikimemory archive manifest version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "formatVersion", "createdBy", "createdAt", "counts", "files"],
+  "properties": {
+    "format": { "const": "wikimemory-archive" },
+    "formatVersion": { "const": 1 },
+    "createdBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wikimemoryVersion", "databaseSchemaVersion"],
+      "properties": {
+        "wikimemoryVersion": { "type": "string" },
+        "databaseSchemaVersion": { "type": "string" }
+      }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["documents", "revisions"],
+      "properties": {
+        "documents": { "type": "integer", "minimum": 0 },
+        "revisions": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    }
+  }
+}

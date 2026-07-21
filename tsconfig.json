@@ -24,7 +24,7 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "allowImportingTsExtensions": false
+    "allowImportingTsExtensions": true
   },
   "include": ["src/**/*.ts"]
 }

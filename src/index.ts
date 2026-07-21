@@ -1,5 +1,6 @@
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { z } from "zod";
+import { CrudApiHandler } from "./api/crud";
 import {
   approveLocalAuthorization,
   handleLocalAuthorization,
@@ -116,8 +117,10 @@ async function safeJson(operation: () => Promise<Response>): Promise<Response> {
 }
 
 export default new OAuthProvider<Env>({
-  apiRoute: "/mcp",
-  apiHandler: mcpHandler,
+  apiHandlers: {
+    "/api/v1/": CrudApiHandler,
+    "/mcp": mcpHandler
+  },
   defaultHandler: webHandler,
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/oauth/token",

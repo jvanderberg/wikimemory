@@ -307,5 +307,6 @@ npx wikimemory skills install claude
 Restart the client after adding skills. If skills are unavailable, paste the
 [manual agent contract](manual-agent-instructions.md) into a session.
 
-Archive import and automated `llmwiki` migration are intentionally unsupported in
-Wikimemory. Do not upload a personal SQLite database to the Worker.
+Use `wikimemory backup` and `wikimemory restore` for portable ZIP archives. Convert
+other source formats locally with the documented CRUD API; never upload a SQLite
+database to the Worker.

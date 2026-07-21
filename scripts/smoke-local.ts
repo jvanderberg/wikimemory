@@ -114,6 +114,104 @@ const token = await json(
 );
 assert(typeof token.access_token === "string", "token exchange returned no access token");
 
+const apiResource = `${base}/api/v1`;
+const apiRegistration = await json(
+  await fetch(`${base}/oauth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: "Wikimemory admin API smoke test",
+      redirect_uris: [redirectUri],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none"
+    })
+  }),
+  "API client registration",
+  registrationSchema
+);
+const apiAuthorize = new URL(`${base}/authorize`);
+apiAuthorize.search = new URLSearchParams({
+  response_type: "code",
+  client_id: apiRegistration.client_id,
+  redirect_uri: redirectUri,
+  scope: "memory:read memory:admin",
+  state: "api-smoke-state",
+  code_challenge: challenge,
+  code_challenge_method: "S256",
+  resource: apiResource
+}).toString();
+const apiConsentRedirect = await fetch(apiAuthorize, { redirect: "manual" });
+const apiConsentLocation = apiConsentRedirect.headers.get("location");
+assert(apiConsentLocation !== null, "API consent redirect returned no location");
+const apiConsent = new URL(apiConsentLocation);
+const apiApprovalUrl = new URL("/api/local-authorize/approve", apiConsent);
+apiApprovalUrl.search = apiConsent.search;
+const apiApproved = await json(
+  await fetch(apiApprovalUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: new URL(base).origin },
+    body: "{}"
+  }),
+  "API authorization approval",
+  z.object({ redirectTo: z.string() })
+);
+const apiCode = new URL(apiApproved.redirectTo).searchParams.get("code");
+assert(apiCode, "API approval returned no authorization code");
+const apiToken = await json(
+  await fetch(`${base}/oauth/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: apiRegistration.client_id,
+      code: apiCode,
+      redirect_uri: redirectUri,
+      code_verifier: verifier,
+      resource: apiResource
+    })
+  }),
+  "API token exchange",
+  tokenSchema
+);
+const apiSlug = `smoke-api-${crypto.randomUUID().slice(0, 8)}`;
+const apiHeaders = {
+  authorization: `Bearer ${apiToken.access_token}`,
+  "content-type": "application/json"
+};
+const apiDocument = await fetch(`${base}/api/v1/documents`, {
+  method: "POST",
+  headers: apiHeaders,
+  body: JSON.stringify({ slug: apiSlug, type: "note" })
+});
+assert(apiDocument.status === 201, `CRUD document create failed (${apiDocument.status})`);
+const apiRevision = await fetch(`${base}/api/v1/documents/${apiSlug}`, {
+  method: "PUT",
+  headers: apiHeaders,
+  body: JSON.stringify({
+    operationId: `smoke:${apiSlug}:1`,
+    revisionNumber: 1,
+    title: "CRUD smoke",
+    body: "Administrative API smoke fixture",
+    createdAt: new Date().toISOString(),
+    reason: "local integration smoke",
+    metadata: [{ key: "tag", value: "smoke", cardinality: "multi" }],
+    links: []
+  })
+});
+assert(apiRevision.status === 201, `CRUD revision create failed (${apiRevision.status})`);
+const apiHistory = await json(
+  await fetch(`${base}/api/v1/documents/${apiSlug}/revisions`, { headers: apiHeaders }),
+  "CRUD revision history",
+  z.object({ items: z.array(z.object({ revisionNumber: z.number() })) })
+);
+assert(apiHistory.items.length === 1, "CRUD API did not return its created revision");
+const apiDelete = await fetch(`${base}/api/v1/documents/${apiSlug}?confirm=${apiSlug}`, {
+  method: "DELETE",
+  headers: apiHeaders
+});
+assert(apiDelete.ok, `CRUD document delete failed (${apiDelete.status})`);
+
 const commonHeaders = {
   authorization: `Bearer ${token.access_token}`,
   "content-type": "application/json",

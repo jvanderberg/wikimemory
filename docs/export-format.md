@@ -1,7 +1,7 @@
 # Export formats
 
-Exports are owner-only web downloads under **Manage**. They are generated from one
-authenticated workspace, are never cached, and have no corresponding import route.
+Legacy JSONL and Markdown exports are owner-only web downloads under **Manage**. New
+portable backups use the checksummed, importable [Wikimemory ZIP format](archive-format.md).
 
 ## Lossless JSONL
 
@@ -23,8 +23,8 @@ Actors and clients use deterministic archive-local aliases such as `actor-1` and
 `client-1`.
 
 Each record kind is capped at 10,000 rows. Export fails rather than silently
-truncating a category. The archive is designed for custody and future reviewed
-recovery tooling; accepting it back into Wikimemory is deliberately unsupported.
+truncating a category. JSONL remains export-only; `.wmem.zip` is the supported
+round-trip format.
 
 ## Current Markdown
 

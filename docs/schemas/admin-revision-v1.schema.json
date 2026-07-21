@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jvanderberg/wikimemory/blob/main/docs/schemas/admin-revision-v1.schema.json",
+  "title": "Wikimemory administrative revision write",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "operationId",
+    "revisionNumber",
+    "title",
+    "body",
+    "createdAt",
+    "reason",
+    "metadata",
+    "links"
+  ],
+  "properties": {
+    "operationId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "revisionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "revisionNumber": { "type": "integer", "minimum": 1 },
+    "parentRevisionId": { "type": ["string", "null"], "maxLength": 200 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "body": { "type": "string", "description": "At most 262144 UTF-8 bytes" },
+    "summary": { "type": ["string", "null"], "maxLength": 1000 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "sourceActor": { "type": ["string", "null"], "maxLength": 200 },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "restoredFromRevisionId": { "type": ["string", "null"], "maxLength": 200 },
+    "metadata": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/metadata" }
+    },
+    "links": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/link" }
+    }
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value", "cardinality"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,99}$" },
+        "value": { "type": "string", "maxLength": 4096 },
+        "cardinality": { "enum": ["singleton", "multi"] }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "targetSlug", "origin"],
+      "properties": {
+        "kind": { "enum": ["related", "part_of", "supersedes", "cites", "contradicts"] },
+        "targetSlug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "targetDocumentId": { "type": ["string", "null"] },
+        "origin": { "enum": ["explicit", "body"] }
+      }
+    }
+  }
+}

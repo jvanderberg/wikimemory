@@ -4,7 +4,7 @@ import { isMemoryScope } from "../domain/guards";
 import { MemoryService } from "../domain/memory-service";
 import type { ActorContext, MemoryScope, OwnerContext } from "../domain/types";
 import type { Env } from "../env";
-import { bindAuthorizationResource } from "./resource";
+import { bindWikimemoryAuthorizationResource } from "./resource";
 
 const PRINCIPAL_ID = "local-owner";
 const WORKSPACE_ID = "local-workspace";
@@ -84,7 +84,7 @@ async function authorizationRequest(request: Request, env: Env): Promise<AuthReq
   const authorize = new URL("/authorize", incoming.origin);
   authorize.search = incoming.search;
   const parsed = await env.OAUTH_PROVIDER.parseAuthRequest(new Request(authorize));
-  return bindAuthorizationResource(parsed, new URL("/mcp", request.url).toString());
+  return bindWikimemoryAuthorizationResource(parsed, new URL("/", request.url).toString());
 }
 
 export function handleLocalAuthorization(request: Request, env: Env): Response {

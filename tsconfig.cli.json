@@ -2,12 +2,12 @@
   "extends": "./tsconfig.scripts.json",
   "compilerOptions": {
     "allowImportingTsExtensions": true,
-    "declaration": false,
+    "declaration": true,
     "noEmit": false,
     "outDir": "dist/npm-cli",
     "rewriteRelativeImportExtensions": true,
     "rootDir": ".",
     "sourceMap": false
   },
-  "include": ["scripts/cli.ts"]
+  "include": ["scripts/cli.ts", "scripts/local-client.ts"]
 }

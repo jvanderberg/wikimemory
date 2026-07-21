@@ -87,6 +87,37 @@ export interface DocumentSnapshot {
   links: StoredLink[];
 }
 
+export interface DocumentIdentity {
+  documentId: string;
+  workspaceId: string;
+  slug: string;
+  type: DocumentType;
+  createdAt: string;
+}
+
+export interface AdminCreateDocumentRequest {
+  documentId?: string;
+  slug: string;
+  type: DocumentType;
+  createdAt?: string;
+}
+
+export interface AdminAppendRevisionRequest {
+  operationId: string;
+  revisionId?: string;
+  revisionNumber: number;
+  parentRevisionId?: string | null;
+  title: string;
+  body: string;
+  summary?: string | null;
+  createdAt: string;
+  sourceActor?: string | null;
+  reason: string;
+  restoredFromRevisionId?: string | null;
+  metadata: MetadataValue[];
+  links: StoredLink[];
+}
+
 export interface IngestResult {
   documentId: string;
   revisionId: string;

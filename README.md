@@ -99,6 +99,29 @@ under `~/.config/wikimemory/deployments/NAME/`. Uninstall requires an explicit a
 step and exact Worker-name confirmation because deleting D1 permanently destroys the
 stored memory.
 
+## Back up and restore
+
+Authorize the administrative CLI once, then create a portable archive:
+
+```sh
+npx wikimemory api login
+npx wikimemory backup create --output wikimemory-backup.wmem.zip
+npx wikimemory backup verify wikimemory-backup.wmem.zip
+npx wikimemory restore wikimemory-backup.wmem.zip
+```
+
+The ZIP contains human-readable Markdown, complete revision history, metadata, links,
+a versioned manifest, and SHA-256 checksums. It excludes passkeys, OAuth credentials,
+and sessions. Restore preserves document and revision identities and stops on conflicts.
+When restoring into a new instance that still has starter documents, use
+`wikimemory restore FILE --replace`; Wikimemory requires exact Worker-name confirmation
+before deleting them.
+
+Source-specific importers are intentionally not built in. An LLM or developer can use
+the documented admin CRUD API and exported `wikimemory/client` TypeScript client to
+convert another format while retaining its history. See the [archive
+format](docs/archive-format.md) and [CRUD API](docs/crud-api.md).
+
 ## How it works
 
 ```text
@@ -126,6 +149,9 @@ Do not store credentials or material you are unwilling to entrust to the host.
 - [Local development and testing](docs/testing.md)
 - [Installation and client connection](docs/installation.md)
 - [Export formats and privacy](docs/export-format.md)
+- [Portable ZIP archive](docs/archive-format.md)
+- [CRUD API and custom importers](docs/crud-api.md)
+- [OpenAPI contract](docs/openapi.yaml)
 - [Pasteable agent instructions](docs/manual-agent-instructions.md)
 - [Implementation history](docs/implementation-history.md)
 - [Independent design review and dispositions](docs/design-review-2026-07-18.md)
@@ -134,7 +160,8 @@ Do not store credentials or material you are unwilling to entrust to the host.
 
 Wikimemory supports one owner and one workspace, authenticated with passkeys. It
 includes a React web application with owner administration, remote MCP, local
-emulation, portable export, agent skills, and guided installation and client setup.
+emulation, portable backup and restore, an administrative CRUD API, agent skills, and
+guided installation and client setup.
 
 Multi-tenant SaaS, vector search, attachments, built-in chat, offline operation,
 manual document editing, scheduled backups, monitoring infrastructure, custom

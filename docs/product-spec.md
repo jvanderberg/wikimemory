@@ -148,11 +148,10 @@ and recent upstream authentication, not by MCP scopes.
 
 ## 8. Export and migration boundary
 
-Wikimemory intentionally has no general import endpoint or automated `llmwiki`
-migration. Importing untrusted archives creates a large validation and partial-failure
-surface before the service has earned operational trust. An owner may perform a
-one-off, reviewed migration with local operator tooling, but that procedure is
-unsupported and must never upload the raw SQLite database to the Worker.
+Wikimemory has no server-side archive upload or automated `llmwiki` migration.
+Portable restore and custom local importers use the admin-only entity CRUD API, where
+each identity and immutable revision is schema-validated. Raw SQLite databases are
+never uploaded to the Worker.
 
 Exports are:
 

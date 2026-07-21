@@ -1,5 +1,8 @@
 import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
-import { bindAuthorizationResource } from "../src/auth/resource";
+import {
+  bindAuthorizationResource,
+  bindWikimemoryAuthorizationResource
+} from "../src/auth/resource";
 
 function request(resource?: string | string[]): AuthRequest {
   return {
@@ -30,5 +33,26 @@ describe("OAuth resource binding", () => {
     expect(() =>
       bindAuthorizationResource(request([canonical, "https://other.example/mcp"]), canonical)
     ).toThrow();
+  });
+
+  it("allows the canonical MCP and administrative API audiences only", () => {
+    expect(
+      bindWikimemoryAuthorizationResource(
+        request("https://memory.example/api/v1"),
+        "https://memory.example"
+      ).resource
+    ).toBe("https://memory.example/api/v1");
+    expect(
+      bindWikimemoryAuthorizationResource(
+        request("https://memory.example/mcp"),
+        "https://memory.example"
+      ).resource
+    ).toBe("https://memory.example/mcp");
+    expect(() =>
+      bindWikimemoryAuthorizationResource(
+        request("https://memory.example/api/app"),
+        "https://memory.example"
+      )
+    ).toThrow("not a Wikimemory endpoint");
   });
 });

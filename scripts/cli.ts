@@ -10,7 +10,7 @@ import { conciseError } from "./subprocess.ts";
 const [command, ...args] = process.argv.slice(2);
 
 function usage(): string {
-  return `Wikimemory ${WIKIMEMORY_VERSION}\nPersonal, passkey-protected memory for Claude, Codex, and other MCP clients.\n\nUsage: wikimemory COMMAND [OPTIONS]\n\nStart a personal Cloudflare-hosted instance:\n  npx wikimemory install\n\nTry it locally without a Cloudflare deployment:\n  npx wikimemory dev\n\nCommands:\n  wikimemory install [--deployment NAME] [installer options]\n  wikimemory recover [--deployment NAME]\n  wikimemory dev [wrangler dev options]\n  wikimemory status [--deployment NAME]\n  wikimemory browse [--deployment NAME]\n  wikimemory upgrade [--deployment NAME] [--yes]\n  wikimemory passkeys [--deployment NAME] list|add|revoke\n  wikimemory connect [--deployment NAME] codex|claude\n  wikimemory skills install codex|claude\n  wikimemory uninstall [--deployment NAME] [--apply]\n  wikimemory --version\n\nUse \`wikimemory COMMAND --help\` for command-specific options.`;
+  return `Wikimemory ${WIKIMEMORY_VERSION}\nPersonal, passkey-protected memory for Claude, Codex, and other MCP clients.\n\nUsage: wikimemory COMMAND [OPTIONS]\n\nStart a personal Cloudflare-hosted instance:\n  npx wikimemory install\n\nTry it locally without a Cloudflare deployment:\n  npx wikimemory dev\n\nCommands:\n  wikimemory install [--deployment NAME] [installer options]\n  wikimemory recover [--deployment NAME]\n  wikimemory dev [wrangler dev options]\n  wikimemory status [--deployment NAME]\n  wikimemory browse [--deployment NAME]\n  wikimemory upgrade [--deployment NAME] [--yes]\n  wikimemory passkeys [--deployment NAME] list|add|revoke\n  wikimemory connect [--deployment NAME] codex|claude\n  wikimemory api login [--deployment NAME]\n  wikimemory backup [--deployment NAME] create [--output FILE]\n  wikimemory backup inspect|verify FILE\n  wikimemory restore [--deployment NAME] FILE [--replace]\n  wikimemory skills install codex|claude\n  wikimemory uninstall [--deployment NAME] [--apply]\n  wikimemory --version\n\nUse \`wikimemory COMMAND --help\` for command-specific options.`;
 }
 
 async function main(): Promise<void> {
@@ -44,6 +44,9 @@ async function main(): Promise<void> {
       command === "browse" ||
       command === "passkeys" ||
       command === "connect" ||
+      command === "api" ||
+      command === "restore" ||
+      (command === "backup" && parsed.remaining[0] === "create") ||
       command === "uninstall" ||
       (command === "upgrade" && !parsed.remaining.includes("--record")));
   if (requiresInstalledDeployment) {
@@ -88,6 +91,45 @@ async function main(): Promise<void> {
       throw new Error("Usage: wikimemory connect [--deployment NAME] codex|claude");
     const { connectClient } = await import("./client-tools.ts");
     await connectClient(parsed.deployment, parsed.remaining[0]);
+  } else if (command === "backup") {
+    if (parsed.remaining.length === 1 && parsed.remaining[0] === "--help") {
+      console.log(
+        "Usage: wikimemory backup create [--deployment NAME] [--output FILE]\n       wikimemory backup inspect|verify FILE"
+      );
+      return;
+    }
+    const { createBackup, inspectBackup } = await import("./archive.ts");
+    const action = parsed.remaining[0];
+    if (action === "create")
+      await createBackup(paths.record, paths.directory, parsed.remaining.slice(1));
+    else if ((action === "inspect" || action === "verify") && parsed.remaining.length === 2)
+      await inspectBackup(parsed.remaining[1] ?? "");
+    else
+      throw new Error(
+        "Usage: wikimemory backup create [--output FILE] | backup inspect|verify FILE"
+      );
+  } else if (command === "restore") {
+    if (parsed.remaining.length === 1 && parsed.remaining[0] === "--help") {
+      console.log(
+        "Usage: wikimemory restore [--deployment NAME] FILE [--replace] [--confirm WORKER]"
+      );
+      return;
+    }
+    if (parsed.remaining.length === 0)
+      throw new Error(
+        "Usage: wikimemory restore [--deployment NAME] FILE [--replace] [--confirm WORKER]"
+      );
+    const { restoreBackup } = await import("./archive.ts");
+    await restoreBackup(paths.record, paths.directory, parsed.remaining);
+  } else if (command === "api") {
+    if (parsed.remaining.length === 1 && parsed.remaining[0] === "--help") {
+      console.log("Usage: wikimemory api login [--deployment NAME]");
+      return;
+    }
+    if (parsed.remaining.length !== 1 || parsed.remaining[0] !== "login")
+      throw new Error("Usage: wikimemory api login [--deployment NAME]");
+    const { loginApi } = await import("./api-auth.ts");
+    await loginApi(paths.record, paths.directory);
   } else if (command === "uninstall") {
     process.env["WIKIMEMORY_STATE_DIR"] = paths.directory;
     process.env["WIKIMEMORY_PACKAGED"] = "1";

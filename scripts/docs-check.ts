@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { parse } from "yaml";
 import { z } from "zod";
 
 const ROOT = join(import.meta.dirname, "..");
@@ -73,6 +74,9 @@ async function check(): Promise<void> {
         failures.push(`${relativePath}: unknown npm script ${script}`);
     }
   }
+  parse(await readFile(join(ROOT, "docs", "openapi.yaml"), "utf8"), { maxAliasCount: 0 });
+  for (const schema of ["archive-manifest-v1.schema.json", "admin-revision-v1.schema.json"])
+    JSON.parse(await readFile(join(ROOT, "docs", "schemas", schema), "utf8"));
   if (failures.length > 0) throw new Error(`Documentation check failed:\n${failures.join("\n")}`);
   console.log("Documentation links, commands, and terminology are current.");
 }

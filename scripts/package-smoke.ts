@@ -63,6 +63,17 @@ async function packageSmoke(): Promise<void> {
     const packedRoot = join(temporary, "package");
     const directoryLinkType = process.platform === "win32" ? "junction" : "dir";
     await symlink(join(root, "node_modules"), join(temporary, "node_modules"), directoryLinkType);
+    const importedClient = await run(
+      "node",
+      [
+        "--input-type=module",
+        "--eval",
+        'import { WikimemoryClient } from "wikimemory/client"; import { localWikimemoryClient } from "wikimemory/local-client"; if (typeof WikimemoryClient !== "function" || typeof localWikimemoryClient !== "function") process.exit(1);'
+      ],
+      packedRoot
+    );
+    if (importedClient.exitCode !== 0)
+      throw new Error(`Packed API client export failed: ${importedClient.stderr}`);
     const installedSkills = join(temporary, "installed-skills");
     const developmentSkill = join(temporary, "development-skill");
     await mkdir(installedSkills);
@@ -94,6 +105,9 @@ async function packageSmoke(): Promise<void> {
     for (const args of [
       ["--help"],
       ["browse", "--help"],
+      ["api", "--help"],
+      ["backup", "--help"],
+      ["restore", "--help"],
       ["install", "--deployment", "scratch", "--help"],
       ["uninstall", "--deployment", "scratch", "--help"]
     ]) {

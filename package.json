@@ -1,6 +1,6 @@
 {
   "name": "wikimemory",
-  "version": "0.2.13",
+  "version": "0.3.0",
   "description": "Personal, passkey-protected memory for Claude, Codex, and other MCP clients",
   "license": "MIT",
   "repository": {
@@ -21,10 +21,21 @@
   "bin": {
     "wikimemory": "dist/npm-cli/scripts/cli.js"
   },
+  "exports": {
+    "./client": {
+      "types": "./dist/npm-cli/scripts/api-client.d.ts",
+      "import": "./dist/npm-cli/scripts/api-client.js"
+    },
+    "./local-client": {
+      "types": "./dist/npm-cli/scripts/local-client.d.ts",
+      "import": "./dist/npm-cli/scripts/local-client.js"
+    }
+  },
   "files": [
     "dist/npm-cli",
     "dist/web",
     "migrations",
+    "docs",
     "skills",
     "src",
     "release-manifest.json"
@@ -43,7 +54,7 @@
     "deploy": "wrangler deploy --config wrangler.production.jsonc",
     "test": "vitest run && npm run test:installer",
     "test:coverage": "vitest run --coverage.enabled",
-    "test:installer": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include=scripts/setup.ts --test-coverage-include=scripts/uninstall.ts --test-coverage-lines=50 --test-coverage-branches=70 --test-coverage-functions=60 --test scripts/browse.node-test.ts scripts/client-tools.node-test.ts scripts/setup.node-test.ts scripts/subprocess.node-test.ts scripts/upgrade.node-test.ts",
+    "test:installer": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include=scripts/setup.ts --test-coverage-include=scripts/uninstall.ts --test-coverage-lines=50 --test-coverage-branches=70 --test-coverage-functions=60 --test scripts/api-auth.node-test.ts scripts/api-client.node-test.ts scripts/archive.node-test.ts scripts/browse.node-test.ts scripts/client-tools.node-test.ts scripts/setup.node-test.ts scripts/subprocess.node-test.ts scripts/upgrade.node-test.ts",
     "test:package": "node --experimental-strip-types scripts/package-smoke.ts",
     "test:passkey": "node --experimental-strip-types scripts/passkey-e2e.ts",
     "test:watch": "vitest",
@@ -65,9 +76,11 @@
     "@simplewebauthn/server": "^13.2.2",
     "agents": "0.17.4",
     "cross-spawn": "7.0.6",
+    "fflate": "^0.8.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "wrangler": "4.112.0",
+    "yaml": "^2.8.3",
     "zod": "4.4.3"
   },
   "devDependencies": {
