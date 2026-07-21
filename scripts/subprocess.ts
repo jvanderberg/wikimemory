@@ -1,7 +1,6 @@
-import { spawn } from "node:child_process";
-import { dirname, join } from "node:path";
 import process from "node:process";
 import { stripVTControlCharacters } from "node:util";
+import spawn from "cross-spawn";
 
 export interface CommandResult {
   stdout: string;
@@ -17,18 +16,6 @@ export interface CommandOptions {
 
 export function attachedTerminalSpawnOptions(): { stdio: "inherit" } {
   return { stdio: "inherit" };
-}
-
-// On Windows, "npx" resolves to npx.cmd, which spawn() cannot execute without a
-// shell (and shell:true would introduce argument-quoting hazards). Route npx
-// invocations through Node's own npx entry script instead, using the running
-// Node executable. No-op on other platforms.
-function resolveInvocation(command: string, args: string[]): [string, string[]] {
-  if (process.platform === "win32" && command === "npx") {
-    const npxCli = join(dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
-    return [process.execPath, [npxCli, ...args]];
-  }
-  return [command, args];
 }
 
 interface ForwardState {
@@ -64,8 +51,7 @@ export async function runCommand(
   options: CommandOptions = {}
 ): Promise<CommandResult> {
   return await new Promise<CommandResult>((resolve, reject) => {
-    const [resolvedCommand, resolvedArgs] = resolveInvocation(command, args);
-    const child = spawn(resolvedCommand, resolvedArgs, {
+    const child = spawn(command, args, {
       stdio: [options.inheritStdin === true ? "inherit" : "pipe", "pipe", "pipe"]
     });
     if (child.stdout === null || child.stderr === null) {
@@ -100,8 +86,7 @@ export async function runCommand(
 
 export async function runAttachedCommand(command: string, args: string[]): Promise<CommandResult> {
   return await new Promise<CommandResult>((resolve, reject) => {
-    const [resolvedCommand, resolvedArgs] = resolveInvocation(command, args);
-    const child = spawn(resolvedCommand, resolvedArgs, attachedTerminalSpawnOptions());
+    const child = spawn(command, args, attachedTerminalSpawnOptions());
     child.on("error", reject);
     child.on("close", (code) => {
       resolve({ stdout: "", stderr: "", exitCode: code ?? -1 });

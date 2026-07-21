@@ -43,7 +43,7 @@
     "deploy": "wrangler deploy --config wrangler.production.jsonc",
     "test": "vitest run && npm run test:installer",
     "test:coverage": "vitest run --coverage.enabled",
-    "test:installer": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include=scripts/setup.ts --test-coverage-include=scripts/uninstall.ts --test-coverage-lines=50 --test-coverage-branches=70 --test-coverage-functions=60 --test scripts/browse.node-test.ts scripts/client-tools.node-test.ts scripts/setup.node-test.ts scripts/upgrade.node-test.ts",
+    "test:installer": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include=scripts/setup.ts --test-coverage-include=scripts/uninstall.ts --test-coverage-lines=50 --test-coverage-branches=70 --test-coverage-functions=60 --test scripts/browse.node-test.ts scripts/client-tools.node-test.ts scripts/setup.node-test.ts scripts/subprocess.node-test.ts scripts/upgrade.node-test.ts",
     "test:package": "node --experimental-strip-types scripts/package-smoke.ts",
     "test:passkey": "node --experimental-strip-types scripts/passkey-e2e.ts",
     "test:watch": "vitest",
@@ -56,7 +56,7 @@
     "verify:release": "node --experimental-strip-types scripts/verify-release.ts",
     "prepack": "npm run build:web && npm run build:cli && npm run verify:release",
     "prepublishOnly": "npm run check",
-    "check": "npm run typecheck && npm run lint && npm run docs:check && npm test && npm run test:coverage"
+    "check": "npm run build:web && npm run typecheck && npm run lint && npm run docs:check && npm test && npm run test:coverage"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "0.8.2",
@@ -64,6 +64,7 @@
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.2.2",
     "agents": "0.17.4",
+    "cross-spawn": "7.0.6",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "wrangler": "4.112.0",
@@ -74,6 +75,7 @@
     "@cloudflare/vitest-pool-workers": "0.18.6",
     "@cloudflare/workers-types": "5.20260718.1",
     "@eslint/js": "9.39.2",
+    "@types/cross-spawn": "6.0.6",
     "@types/node": "^22.20.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

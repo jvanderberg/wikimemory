@@ -1,7 +1,7 @@
-import { spawn } from "node:child_process";
 import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import spawn from "cross-spawn";
 import { WIKIMEMORY_VERSION } from "../src/version.ts";
 
 interface Result {
@@ -22,6 +22,11 @@ async function run(
       env: configHome === undefined ? process.env : { ...process.env, XDG_CONFIG_HOME: configHome },
       stdio: ["ignore", "pipe", "pipe"]
     });
+    if (child.stdout === null || child.stderr === null) {
+      child.kill();
+      reject(new Error("Package smoke subprocess output pipes were not created"));
+      return;
+    }
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");
@@ -55,13 +60,14 @@ async function packageSmoke(): Promise<void> {
     if (unpacked.exitCode !== 0)
       throw new Error(`Packed archive extraction failed: ${unpacked.stderr}`);
     const packedRoot = join(temporary, "package");
-    await symlink(join(root, "node_modules"), join(temporary, "node_modules"));
+    const directoryLinkType = process.platform === "win32" ? "junction" : "dir";
+    await symlink(join(root, "node_modules"), join(temporary, "node_modules"), directoryLinkType);
     const installedSkills = join(temporary, "installed-skills");
     const developmentSkill = join(temporary, "development-skill");
     await mkdir(installedSkills);
     await mkdir(developmentSkill);
     await writeFile(join(developmentSkill, "SKILL.md"), "development\n");
-    await symlink(developmentSkill, join(installedSkills, "wikimemory-recall"));
+    await symlink(developmentSkill, join(installedSkills, "wikimemory-recall"), directoryLinkType);
     const installScript = `import { replaceSkillDirectories } from ${JSON.stringify(
       join(packedRoot, "dist", "npm-cli", "scripts", "client-tools.js")
     )}; await replaceSkillDirectories(${JSON.stringify(packedRoot)}, ${JSON.stringify(

@@ -263,6 +263,13 @@ export function migrationBundle(sql: string, migrationName: string): string {
   return `${sql.trimEnd()}\n\nINSERT INTO d1_migrations(name) VALUES ('${escapedName}');\n`;
 }
 
+export function migrationTemporaryPrefix(
+  temporaryRoot: string,
+  joinPath: (...paths: string[]) => string = join
+): string {
+  return joinPath(temporaryRoot, "wikimemory-d1-migration-");
+}
+
 export async function applyRemoteMigrations(databaseName: string): Promise<void> {
   await run("npx", [
     "wrangler",
@@ -297,9 +304,9 @@ export async function applyRemoteMigrations(databaseName: string): Promise<void>
     .sort();
   for (const migration of migrations) {
     if (applied.has(migration)) continue;
-    const temporary = await mkdtemp(join(tmpdir(), "wikimemory-d1-migration-"));
-    if (!temporary.startsWith(join(tmpdir(), "wikimemory-d1-migration-")))
-      throw new Error("Unexpected migration temporary path");
+    const prefix = migrationTemporaryPrefix(tmpdir());
+    const temporary = await mkdtemp(prefix);
+    if (!temporary.startsWith(prefix)) throw new Error("Unexpected migration temporary path");
     try {
       const bundlePath = join(temporary, migration);
       await writeFile(

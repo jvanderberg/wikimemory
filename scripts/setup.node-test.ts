@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import process from "node:process";
 import { describe, it } from "node:test";
 import {
@@ -13,6 +13,7 @@ import {
   handoff,
   initialConfig,
   migrationBundle,
+  migrationTemporaryPrefix,
   parseOptions,
   retryOperation,
   runSetup,
@@ -162,6 +163,15 @@ await describe("guided installer", async () => {
     );
     assert.match(bundle, /CREATE TRIGGER[\s\S]+BEGIN SELECT 1; END;/u);
     assert.match(bundle, /INSERT INTO d1_migrations\(name\) VALUES \('0001_owner''s.sql'\);/u);
+  });
+
+  await it("constructs the migration temporary prefix with Windows separators", () => {
+    assert.equal(
+      migrationTemporaryPrefix("C:\\Users\\owner\\AppData\\Local\\Temp", (...paths) =>
+        win32.join(...paths)
+      ),
+      "C:\\Users\\owner\\AppData\\Local\\Temp\\wikimemory-d1-migration-"
+    );
   });
 
   await it("prints complete read-write client handoff without exposing the hash", () => {
