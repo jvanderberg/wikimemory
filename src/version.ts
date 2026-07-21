@@ -1,2 +1,2 @@
-export const WIKIMEMORY_VERSION = "0.2.12";
+export const WIKIMEMORY_VERSION = "0.2.13";
 export const LATEST_SCHEMA_VERSION = "0004_credential_bound_registration_tokens.sql";

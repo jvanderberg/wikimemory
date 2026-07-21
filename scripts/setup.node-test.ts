@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import process from "node:process";
 import { describe, it } from "node:test";
+import { WIKIMEMORY_VERSION } from "../src/version.ts";
 import {
   bindingProperty,
   commandFailureMessage,
@@ -229,7 +230,11 @@ await describe("guided installer", async () => {
         return Promise.resolve(
           attempts === 1
             ? new Response("starting", { status: 500 })
-            : Response.json({ status: "ok", service: "wikimemory", version: "0.2.12" })
+            : Response.json({
+                status: "ok",
+                service: "wikimemory",
+                version: WIKIMEMORY_VERSION
+              })
         );
       },
       (milliseconds) => {

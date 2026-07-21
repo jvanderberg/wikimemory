@@ -1,6 +1,7 @@
 import { env, exports } from "cloudflare:workers";
 import { setupOptions } from "../src/auth/passkey";
 import { sha256 } from "../src/domain/crypto";
+import { LATEST_SCHEMA_VERSION, WIKIMEMORY_VERSION } from "../src/version";
 
 describe("passkey boundaries", () => {
   it("reports the deployed application version", async () => {
@@ -8,7 +9,7 @@ describe("passkey boundaries", () => {
     await expect(response.json()).resolves.toEqual({
       status: "ok",
       service: "wikimemory",
-      version: "0.2.12"
+      version: WIKIMEMORY_VERSION
     });
   });
 
@@ -18,8 +19,8 @@ describe("passkey boundaries", () => {
     await expect(response.json()).resolves.toEqual({
       status: "ready",
       service: "wikimemory",
-      version: "0.2.12",
-      schemaVersion: "0004_credential_bound_registration_tokens.sql"
+      version: WIKIMEMORY_VERSION,
+      schemaVersion: LATEST_SCHEMA_VERSION
     });
   });
 
