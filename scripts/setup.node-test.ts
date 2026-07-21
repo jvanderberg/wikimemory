@@ -81,20 +81,20 @@ await describe("guided installer", async () => {
     );
     const parsed: unknown = JSON.parse(config);
     assert.deepEqual(parsed, {
-      $schema: "node_modules/wrangler/config-schema.json",
+      $schema: join("node_modules", "wrangler", "config-schema.json"),
       name: "wikimemory",
-      main: "src/index.ts",
+      main: join("src", "index.ts"),
       vars: { APP_BASE_URL: "https://memory.example" },
       d1_databases: [
         {
           binding: "DB",
           database_name: "memory",
           database_id: "db-id",
-          migrations_dir: "migrations"
+          migrations_dir: join("migrations")
         }
       ],
       assets: {
-        directory: "dist/web",
+        directory: join("dist", "web"),
         binding: "ASSETS",
         not_found_handling: "single-page-application",
         run_worker_first: true

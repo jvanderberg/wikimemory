@@ -267,13 +267,14 @@ await describe("packaged upgrade", async () => {
   });
 
   await it("pins the package entrypoint, assets, account, and immutable resource IDs", () => {
+    const packageRoot = join("/package");
     const config = parseProductionUpgradeConfig(
-      JSON.parse(productionUpgradeConfig(record, "/package"))
+      JSON.parse(productionUpgradeConfig(record, packageRoot))
     );
     assert.equal(config.name, "my-memory");
     assert.equal(config.account_id, "account-id");
-    assert.equal(config.main, "/package/src/index.ts");
-    assert.equal(config.assets.directory, "/package/dist/web");
+    assert.equal(config.main, join(packageRoot, "src", "index.ts"));
+    assert.equal(config.assets.directory, join(packageRoot, "dist", "web"));
     assert.equal(config.assets.run_worker_first, true);
     const database = config.d1_databases.at(0);
     const namespace = config.kv_namespaces.at(0);
@@ -312,15 +313,17 @@ await describe("packaged upgrade", async () => {
 
   await it("keeps every lifecycle file inside one deployment directory", () => {
     const previous = process.env["XDG_CONFIG_HOME"];
-    process.env["XDG_CONFIG_HOME"] = "/config";
+    const configRoot = join("/config");
+    process.env["XDG_CONFIG_HOME"] = configRoot;
     try {
+      const directory = join(configRoot, "wikimemory", "deployments", "personal");
       assert.deepEqual(deploymentPaths("personal"), {
-        directory: "/config/wikimemory/deployments/personal",
-        record: "/config/wikimemory/deployments/personal/deployment.json",
-        config: "/config/wikimemory/deployments/personal/wrangler.jsonc",
-        installProgress: "/config/wikimemory/deployments/personal/install-progress.json",
-        uninstallProgress: "/config/wikimemory/deployments/personal/uninstall-progress.json",
-        passkeyClient: "/config/wikimemory/deployments/personal/passkey-client.json"
+        directory,
+        record: join(directory, "deployment.json"),
+        config: join(directory, "wrangler.jsonc"),
+        installProgress: join(directory, "install-progress.json"),
+        uninstallProgress: join(directory, "uninstall-progress.json"),
+        passkeyClient: join(directory, "passkey-client.json")
       });
     } finally {
       if (previous === undefined) delete process.env["XDG_CONFIG_HOME"];
@@ -370,9 +373,10 @@ await describe("packaged upgrade", async () => {
   });
 
   await it("generates a package-owned persistent local development config", () => {
-    const config = localConfig("/package");
-    assert.match(config, /"main": "\/package\/src\/index\.ts"/u);
-    assert.match(config, /"directory": "\/package\/dist\/web"/u);
+    const packageRoot = join("/package");
+    const config = localConfig(packageRoot);
+    assert.ok(config.includes(`"main": ${JSON.stringify(join(packageRoot, "src", "index.ts"))}`));
+    assert.ok(config.includes(`"directory": ${JSON.stringify(join(packageRoot, "dist", "web"))}`));
     assert.match(config, /"run_worker_first": true/u);
     assert.match(config, /"APP_ENV": "local"/u);
   });
