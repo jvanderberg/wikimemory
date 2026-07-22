@@ -39,6 +39,16 @@ export interface AdminWorkspaceArchive {
   revisions: DocumentSnapshot[];
 }
 
+export interface AdminArchiveSnapshot {
+  databaseSchemaVersion: string;
+  fingerprint: string;
+}
+
+export interface AdminRevisionPage {
+  items: DocumentSnapshot[];
+  next: { slug: string; revisionNumber: number } | null;
+}
+
 function requireScope(actor: ActorContext, scope: "memory:read" | "memory:admin"): void {
   if (!actor.scopes.has(scope))
     throw new DomainError("forbidden", `Missing required scope ${scope}`);
@@ -94,6 +104,160 @@ function validateLinks(values: StoredLink[]): void {
 
 export class AdminService {
   constructor(private readonly db: D1Database) {}
+
+  async archiveFingerprint(
+    actor: ActorContext,
+    databaseSchemaVersion: string
+  ): Promise<AdminArchiveSnapshot> {
+    requireScope(actor, "memory:read");
+    const row = await this.db
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM documents WHERE workspace_id = ?) document_count,
+           (SELECT COALESCE(MAX(rowid), 0) FROM documents WHERE workspace_id = ?) document_version,
+           (SELECT COUNT(*) FROM revisions WHERE workspace_id = ?) revision_count,
+           (SELECT COALESCE(MAX(rowid), 0) FROM revisions WHERE workspace_id = ?) revision_version,
+           (SELECT COUNT(*) FROM audit_events WHERE workspace_id = ?) audit_count,
+           (SELECT COALESCE(MAX(rowid), 0) FROM audit_events WHERE workspace_id = ?) audit_version`
+      )
+      .bind(
+        actor.workspaceId,
+        actor.workspaceId,
+        actor.workspaceId,
+        actor.workspaceId,
+        actor.workspaceId,
+        actor.workspaceId
+      )
+      .first<{
+        document_count: number;
+        document_version: number;
+        revision_count: number;
+        revision_version: number;
+        audit_count: number;
+        audit_version: number;
+      }>();
+    if (row === null) throw new DomainError("internal_error", "Could not read archive snapshot");
+    return {
+      databaseSchemaVersion,
+      fingerprint: [
+        row.document_count,
+        row.document_version,
+        row.revision_count,
+        row.revision_version,
+        row.audit_count,
+        row.audit_version
+      ].join(":")
+    };
+  }
+
+  async listArchiveRevisions(
+    actor: ActorContext,
+    afterSlug: string | null,
+    afterRevisionNumber: number,
+    limit: number
+  ): Promise<AdminRevisionPage> {
+    requireScope(actor, "memory:read");
+    if (afterSlug !== null && !SLUG.test(afterSlug))
+      throw new DomainError("validation_failed", "invalid revision cursor slug");
+    if (!Number.isInteger(afterRevisionNumber) || afterRevisionNumber < 0)
+      throw new DomainError("validation_failed", "invalid revision cursor number");
+    const bounded = Math.max(1, Math.min(limit, 50));
+    const revisionRows = await this.db
+      .prepare(
+        `SELECT d.id document_id, d.workspace_id, d.slug, d.type,
+                r.id revision_id, r.revision_number, r.parent_revision_id,
+                r.title, r.body, r.summary, r.created_at, r.principal_id,
+                r.client_id, r.agent_label, r.reason, r.restored_from_revision_id
+         FROM documents d JOIN revisions r ON r.doc_id = d.id
+         WHERE d.workspace_id = ?
+           AND (? IS NULL OR d.slug > ? OR (d.slug = ? AND r.revision_number > ?))
+         ORDER BY d.slug, r.revision_number LIMIT ?`
+      )
+      .bind(actor.workspaceId, afterSlug, afterSlug, afterSlug, afterRevisionNumber, bounded)
+      .all<ArchiveRevisionRow>();
+    if (revisionRows.results.length === 0) return { items: [], next: null };
+
+    const revisionIds = revisionRows.results.map((row) => row.revision_id);
+    const placeholders = revisionIds.map(() => "?").join(", ");
+    const [metadataRows, linkRows] = await Promise.all([
+      this.db
+        .prepare(
+          `SELECT revision_id, key, value, cardinality FROM revision_metadata
+           WHERE workspace_id = ? AND revision_id IN (${placeholders})
+           ORDER BY revision_id, key, value`
+        )
+        .bind(actor.workspaceId, ...revisionIds)
+        .all<{
+          revision_id: string;
+          key: string;
+          value: string;
+          cardinality: MetadataValue["cardinality"];
+        }>(),
+      this.db
+        .prepare(
+          `SELECT rl.revision_id, rl.kind, rl.target_slug,
+                  COALESCE(rl.target_document_id, target.id) target_document_id, rl.origin
+           FROM revision_links rl
+           LEFT JOIN documents target
+             ON target.workspace_id = rl.workspace_id AND target.slug = rl.target_slug
+           WHERE rl.workspace_id = ? AND rl.revision_id IN (${placeholders})
+           ORDER BY rl.revision_id, rl.kind, rl.target_slug, rl.origin`
+        )
+        .bind(actor.workspaceId, ...revisionIds)
+        .all<{
+          revision_id: string;
+          kind: StoredLink["kind"];
+          target_slug: string;
+          target_document_id: string | null;
+          origin: StoredLink["origin"];
+        }>()
+    ]);
+    const metadata = new Map<string, MetadataValue[]>();
+    for (const row of metadataRows.results) {
+      const values = metadata.get(row.revision_id) ?? [];
+      values.push({ key: row.key, value: row.value, cardinality: row.cardinality });
+      metadata.set(row.revision_id, values);
+    }
+    const links = new Map<string, StoredLink[]>();
+    for (const row of linkRows.results) {
+      const values = links.get(row.revision_id) ?? [];
+      values.push({
+        kind: row.kind,
+        targetSlug: row.target_slug,
+        targetDocumentId: row.target_document_id,
+        origin: row.origin
+      });
+      links.set(row.revision_id, values);
+    }
+    const items = revisionRows.results.map((row) => ({
+      documentId: row.document_id,
+      workspaceId: row.workspace_id,
+      slug: row.slug,
+      type: row.type,
+      revisionId: row.revision_id,
+      revisionNumber: row.revision_number,
+      parentRevisionId: row.parent_revision_id,
+      title: row.title,
+      body: row.body,
+      summary: row.summary,
+      createdAt: row.created_at,
+      principalId: row.principal_id,
+      clientId: row.client_id,
+      agentLabel: row.agent_label,
+      reason: row.reason,
+      restoredFromRevisionId: row.restored_from_revision_id,
+      metadata: metadata.get(row.revision_id) ?? [],
+      links: links.get(row.revision_id) ?? []
+    }));
+    const last = items.at(-1);
+    return {
+      items,
+      next:
+        items.length === bounded && last !== undefined
+          ? { slug: last.slug, revisionNumber: last.revisionNumber }
+          : null
+    };
+  }
 
   async exportWorkspace(actor: ActorContext): Promise<AdminWorkspaceArchive> {
     requireScope(actor, "memory:read");

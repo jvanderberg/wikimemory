@@ -35,7 +35,7 @@ Backup and restore** in `http://127.0.0.1:8787/app`, or:
 
 ```sh
 node --experimental-strip-types scripts/cli.ts api login --local
-node --experimental-strip-types scripts/cli.ts backup create --local --output test.wmem.zip
+node --experimental-strip-types scripts/cli.ts backup --local --output test.wmem.zip
 node --experimental-strip-types scripts/cli.ts backup verify test.wmem.zip
 node --experimental-strip-types scripts/cli.ts restore --local test.wmem.zip
 ```

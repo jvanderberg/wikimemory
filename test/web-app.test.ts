@@ -1,9 +1,7 @@
 import { env, exports } from "cloudflare:workers";
-import { createArchive, readArchive } from "../src/archive/format";
-import { archiveForOwner } from "../src/archive/web";
-import { localOwnerActor, localOwnerContext } from "../src/auth/local";
+import { localOwnerActor } from "../src/auth/local";
 import { MemoryService } from "../src/domain/memory-service";
-import type { DocumentIdentity, DocumentSnapshot } from "../src/domain/types";
+import type { DocumentSnapshot } from "../src/domain/types";
 
 const ORIGIN = "https://example.test";
 const OWNER_COOKIE = "wm_local_web=owner";
@@ -264,30 +262,35 @@ describe("web application JSON API", () => {
     expect((await exports.default.fetch(ownerRequest("/api/app/export.md"))).status).toBe(404);
   });
 
-  it("downloads, previews, and restores a complete ZIP backup", async () => {
-    let preparedStatements = 0;
-    const countingDb = new Proxy(env.DB, {
-      get(target, property) {
-        if (property === "prepare")
-          return (query: string) => {
-            preparedStatements += 1;
-            return target.prepare(query);
-          };
-        return undefined;
-      }
-    });
-    await archiveForOwner({ DB: countingDb }, localOwnerContext("web-backup-query-test"));
-    expect(preparedStatements).toBe(4);
+  it("pages backup data without constructing a ZIP in the Worker", async () => {
+    const snapshot = await exports.default.fetch(ownerRequest("/api/app/backup/snapshot"));
+    expect(snapshot.status).toBe(200);
+    const snapshotBody = await snapshot.json<{
+      databaseSchemaVersion: string;
+      fingerprint: string;
+    }>();
+    expect(snapshotBody.databaseSchemaVersion.length).toBeGreaterThan(0);
+    expect(snapshotBody.fingerprint).toMatch(/^\d+:\d+:\d+:\d+:\d+:\d+$/u);
+    const documentsPage = await exports.default.fetch(ownerRequest("/api/app/backup/documents"));
+    expect(documentsPage.status).toBe(200);
+    const documentsBody = await documentsPage.json<{
+      items: Array<{ slug: string }>;
+      next: string | null;
+    }>();
+    expect(documentsBody.items.map((item) => item.slug)).toContain("home");
+    expect(documentsBody.next).toBeNull();
+    const revisionsPage = await exports.default.fetch(ownerRequest("/api/app/backup/revisions"));
+    expect(revisionsPage.status).toBe(200);
+    const revisionsBody = await revisionsPage.json<{
+      items: DocumentSnapshot[];
+      next: { slug: string; revisionNumber: number } | null;
+    }>();
+    expect(revisionsBody.items.map((item) => item.slug)).toContain("home");
+    expect(revisionsBody.next).toBeNull();
+    const legacyDownload = await exports.default.fetch(ownerRequest("/api/app/backup"));
+    expect(legacyDownload.status).toBe(410);
 
-    const downloaded = await exports.default.fetch(ownerRequest("/api/app/backup"));
-    expect(downloaded.status).toBe(200);
-    expect(downloaded.headers.get("content-disposition")).toContain(".wmem.zip");
-    const downloadedBytes = new Uint8Array(await downloaded.arrayBuffer());
-    const current = await readArchive(downloadedBytes);
-    expect(current.documents.map((item) => item.slug)).toEqual(
-      expect.arrayContaining(["home", "now"])
-    );
-    const currentHome = current.revisions.find((item) => item.slug === "home");
+    const currentHome = revisionsBody.items.find((item) => item.slug === "home");
     const storedHome = await new MemoryService(env.DB).get(
       localOwnerActor("web-backup-test"),
       "home"
@@ -303,135 +306,47 @@ describe("web application JSON API", () => {
       metadata: storedHome.metadata,
       links: storedHome.links
     });
-    const downloadedForm = new FormData();
-    downloadedForm.set(
-      "backup",
-      new File([downloadedBytes], "downloaded.wmem.zip", {
-        type: "application/zip"
-      })
-    );
-    const unchangedPreview = await exports.default.fetch(
-      ownerRequest("/api/app/restore/preview", {
-        method: "POST",
-        headers: { origin: ORIGIN },
-        body: downloadedForm
-      })
-    );
-    expect(unchangedPreview.status).toBe(200);
-    await expect(unchangedPreview.json()).resolves.toMatchObject({
-      preview: {
-        newDocuments: 0,
-        newRevisions: 0,
-        conflicts: [],
-        replacesStarterContent: false
-      }
-    });
-    const invalidForm = new FormData();
-    invalidForm.set("backup", new File(["not a zip"], "broken.wmem.zip"));
-    const invalid = await exports.default.fetch(
-      ownerRequest("/api/app/restore/preview", {
-        method: "POST",
-        headers: { origin: ORIGIN },
-        body: invalidForm
-      })
-    );
-    expect(invalid.status).toBe(400);
-    const invalidBody = await invalid.json<{ error: string; message: string }>();
-    expect(invalidBody.error).toBe("validation_failed");
-    expect(invalidBody.message).toContain("Backup is invalid");
-    const missingFile = await exports.default.fetch(
-      ownerRequest("/api/app/restore/preview", {
-        method: "POST",
-        headers: { origin: ORIGIN },
-        body: new FormData()
-      })
-    );
-    expect(missingFile.status).toBe(400);
-
-    const conflictingIdentity: DocumentIdentity = {
-      documentId: "different-home-identity",
-      workspaceId: "archive-workspace",
-      slug: "home",
-      type: "system",
-      createdAt: "2026-07-21T11:00:00Z"
-    };
-    const conflictingRevision: DocumentSnapshot = {
-      ...conflictingIdentity,
-      revisionId: "different-home-revision",
-      revisionNumber: 1,
-      parentRevisionId: null,
-      title: "Different home",
-      body: "Conflicting content",
-      summary: null,
-      principalId: "archive-private",
-      clientId: "archive-private",
-      agentLabel: null,
-      reason: "conflict fixture",
-      restoredFromRevisionId: null,
-      metadata: [],
-      links: []
-    };
-    const conflictBytes = await createArchive(
-      [conflictingIdentity],
-      [conflictingRevision],
-      "test-schema"
-    );
-    const conflictForm = new FormData();
-    conflictForm.set("backup", new File([conflictBytes], "conflict.wmem.zip"));
-    const conflict = await exports.default.fetch(
+    const oldUpload = await exports.default.fetch(
       ownerRequest("/api/app/restore", {
         method: "POST",
-        headers: { origin: ORIGIN },
-        body: conflictForm
+        headers: { origin: ORIGIN, "content-type": "application/json" },
+        body: "{}"
       })
     );
-    expect(conflict.status).toBe(409);
-    await expect(conflict.json()).resolves.toMatchObject({ error: "revision_conflict" });
+    expect(oldUpload.status).toBe(410);
 
-    const identity: DocumentIdentity = {
-      documentId: "web-archive-document",
-      workspaceId: "archive-workspace",
-      slug: "web-archive-note",
-      type: "note",
-      createdAt: "2026-07-21T12:00:00Z"
-    };
-    const revision: DocumentSnapshot = {
-      ...identity,
-      revisionId: "web-archive-revision-1",
-      revisionNumber: 1,
-      parentRevisionId: null,
-      title: "Restored through the web",
-      body: "Complete archived content",
-      summary: "Web archive fixture",
-      principalId: "archive-private",
-      clientId: "archive-private",
-      agentLabel: "archive-test",
-      reason: "test web archive restore",
-      restoredFromRevisionId: null,
-      metadata: [{ key: "tag", value: "archive", cardinality: "multi" }],
-      links: []
-    };
-    const bytes = await createArchive([identity], [revision], "test-schema");
-    function upload(path: string, fields: Record<string, string> = {}): Request {
-      const form = new FormData();
-      form.set("backup", new File([bytes], "fixture.wmem.zip", { type: "application/zip" }));
-      for (const [key, value] of Object.entries(fields)) form.set(key, value);
-      return ownerRequest(path, { method: "POST", headers: { origin: ORIGIN }, body: form });
-    }
+    const starters = await exports.default.fetch(
+      mutation("/api/app/restore/starters", {}, "DELETE")
+    );
+    expect(starters.status).toBe(403);
 
-    const preview = await exports.default.fetch(upload("/api/app/restore/preview"));
-    expect(preview.status).toBe(200);
-    await expect(preview.json()).resolves.toMatchObject({
-      preview: { newDocuments: 1, newRevisions: 1, conflicts: [] }
-    });
-
-    const restored = await exports.default.fetch(upload("/api/app/restore"));
-    expect(restored.status).toBe(200);
-    await expect(restored.json()).resolves.toEqual({
-      restored: true,
-      documents: 1,
-      newRevisions: 1
-    });
+    const created = await exports.default.fetch(
+      mutation("/api/app/restore/documents", {
+        documentId: "web-archive-document",
+        slug: "web-archive-note",
+        type: "note",
+        createdAt: "2026-07-21T12:00:00Z"
+      })
+    );
+    expect(created.status).toBe(201);
+    const restored = await exports.default.fetch(
+      mutation("/api/app/restore/revisions/web-archive-note", {
+        operationId: "web-archive-operation",
+        revisionId: "web-archive-revision-1",
+        revisionNumber: 1,
+        parentRevisionId: null,
+        title: "Restored through the web",
+        body: "Complete archived content",
+        summary: "Web archive fixture",
+        createdAt: "2026-07-21T12:00:00Z",
+        sourceActor: "archive-test",
+        reason: "test web archive restore",
+        restoredFromRevisionId: null,
+        metadata: [{ key: "tag", value: "archive", cardinality: "multi" }],
+        links: []
+      })
+    );
+    expect(restored.status).toBe(201);
     const document = await exports.default.fetch(ownerRequest("/api/app/docs/web-archive-note"));
     expect(document.status).toBe(200);
     await expect(document.json()).resolves.toMatchObject({
@@ -439,30 +354,17 @@ describe("web application JSON API", () => {
     });
 
     const refusedReplacement = await exports.default.fetch(
-      upload("/api/app/restore", { replace: "true", confirmation: "wrong" })
+      mutation("/api/app/restore/documents/web-archive-note", { confirmation: "wrong" }, "DELETE")
     );
     expect(refusedReplacement.status).toBe(400);
-
-    const replacementForm = new FormData();
-    replacementForm.set(
-      "backup",
-      new File([downloadedBytes], "downloaded.wmem.zip", { type: "application/zip" })
-    );
-    replacementForm.set("replace", "true");
-    replacementForm.set("confirmation", "wikimemory-local");
     const replaced = await exports.default.fetch(
-      ownerRequest("/api/app/restore", {
-        method: "POST",
-        headers: { origin: ORIGIN },
-        body: replacementForm
-      })
+      mutation(
+        "/api/app/restore/documents/web-archive-note",
+        { confirmation: "wikimemory-local" },
+        "DELETE"
+      )
     );
     expect(replaced.status).toBe(200);
-    await expect(replaced.json()).resolves.toEqual({
-      restored: true,
-      documents: current.documents.length,
-      newRevisions: current.revisions.length
-    });
     const removed = await exports.default.fetch(ownerRequest("/api/app/docs/web-archive-note"));
     expect(removed.status).not.toBe(200);
     const loginAfterReplacement = await exports.default.fetch(

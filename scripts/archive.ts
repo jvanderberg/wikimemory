@@ -3,6 +3,7 @@ import { basename, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { createArchive, readArchive } from "../src/archive/format.ts";
 import { restoreArchive } from "../src/archive/restore.ts";
+import type { DocumentSnapshot } from "../src/domain/types.ts";
 import { LATEST_SCHEMA_VERSION } from "../src/version.ts";
 import { accessToken } from "./api-auth.ts";
 import { WikimemoryClient } from "./api-client.ts";
@@ -46,9 +47,13 @@ export async function createBackup(
   const record = await readDeploymentRecord(deploymentRecord);
   const api = await client(record.origin, stateDirectory);
   const documents = await api.listDocuments();
-  const revisions = (
-    await Promise.all(documents.map((document) => api.listRevisions(document.slug)))
-  ).flat();
+  const revisions: DocumentSnapshot[] = [];
+  for (let offset = 0; offset < documents.length; offset += 8) {
+    const histories = await Promise.all(
+      documents.slice(offset, offset + 8).map((document) => api.listRevisions(document.slug))
+    );
+    revisions.push(...histories.flat());
+  }
   const bytes = await createArchive(documents, revisions, LATEST_SCHEMA_VERSION);
   const date = new Date()
     .toISOString()

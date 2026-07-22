@@ -2,12 +2,14 @@ import { env } from "cloudflare:workers";
 import { AdminService } from "../src/domain/admin-service";
 import type { DomainError } from "../src/domain/errors";
 import { MemoryService, normalizeSourceUrl } from "../src/domain/memory-service";
+import { STARTER_PAGES } from "../src/domain/starter-content";
 import type {
   ActorContext,
   IngestRequest,
   OwnerContext,
   RestoreRequest
 } from "../src/domain/types";
+import { deletePristineStarters } from "../src/web/app";
 
 const testEnv = env;
 
@@ -42,6 +44,29 @@ async function fixture(label: string): Promise<{ actor: ActorContext; service: M
 }
 
 describe("MemoryService", () => {
+  it("deletes only a complete pristine starter workspace for browser restore", async () => {
+    const { actor, service } = await fixture("pristine-browser-restore");
+    await service.ingest(actor, {
+      ...STARTER_PAGES.home,
+      operationId: "pristine-home",
+      reason: "seed local orientation"
+    });
+    await service.ingest(actor, {
+      ...STARTER_PAGES.now,
+      operationId: "pristine-now",
+      reason: "seed local current focus"
+    });
+    const owner: OwnerContext = {
+      ...actor,
+      role: "owner",
+      reauthenticatedAt: new Date().toISOString()
+    };
+
+    await deletePristineStarters(new AdminService(testEnv.DB), service, owner);
+
+    await expect(new AdminService(testEnv.DB).listDocuments(actor, null, 10)).resolves.toEqual([]);
+  });
+
   it("exports complete revision history with metadata and links in bulk", async () => {
     const { actor, service } = await fixture("bulk-archive");
     const target = await service.ingest(actor, {
@@ -112,6 +137,31 @@ describe("MemoryService", () => {
         { key: "tag", value: "backup", cardinality: "multi" }
       ])
     );
+
+    const admin = new AdminService(testEnv.DB);
+    const firstPage = await admin.listArchiveRevisions(actor, null, 0, 1);
+    expect(firstPage.items).toHaveLength(1);
+    expect(firstPage.next).not.toBeNull();
+    const secondPage = await admin.listArchiveRevisions(
+      actor,
+      firstPage.next?.slug ?? null,
+      firstPage.next?.revisionNumber ?? 0,
+      1
+    );
+    expect(secondPage.items).toHaveLength(1);
+    expect(secondPage.items[0]?.revisionId).not.toBe(firstPage.items[0]?.revisionId);
+
+    const before = await admin.archiveFingerprint(actor, "schema");
+    await service.ingest(actor, {
+      operationId: "bulk-archive-third",
+      reason: "change archive fingerprint",
+      slug: "archive-origin",
+      expectedRevisionId: second.revisionId,
+      title: "Archive origin final",
+      body: "Third body"
+    });
+    const after = await admin.archiveFingerprint(actor, "schema");
+    expect(after.fingerprint).not.toBe(before.fingerprint);
   });
 
   it("isolates documents and search results by authenticated workspace", async () => {

@@ -4,10 +4,14 @@ import { type AuthProps, actorFromAuthorization } from "../auth/props";
 import { AdminService } from "../domain/admin-service";
 import { DomainError } from "../domain/errors";
 import { MemoryService } from "../domain/memory-service";
-import type { AdminAppendRevisionRequest, OwnerContext } from "../domain/types";
+import type {
+  AdminAppendRevisionRequest,
+  AdminCreateDocumentRequest,
+  OwnerContext
+} from "../domain/types";
 import type { Env } from "../env";
 
-const documentInput = z
+export const adminDocumentInputSchema = z
   .object({
     documentId: z.string().min(1).max(200).optional(),
     slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
@@ -34,7 +38,18 @@ const link = z
   .strict()
   .transform((value) => ({ ...value, targetDocumentId: value.targetDocumentId ?? null }));
 
-const revisionInput = z
+export function adminDocumentRequest(
+  input: z.infer<typeof adminDocumentInputSchema>
+): AdminCreateDocumentRequest {
+  return {
+    slug: input.slug,
+    type: input.type,
+    ...(input.documentId === undefined ? {} : { documentId: input.documentId }),
+    ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt })
+  };
+}
+
+export const adminRevisionInputSchema = z
   .object({
     operationId: z.string().min(1).max(200),
     revisionId: z.string().min(1).max(200).optional(),
@@ -52,7 +67,9 @@ const revisionInput = z
   })
   .strict();
 
-function adminRevision(input: z.infer<typeof revisionInput>): AdminAppendRevisionRequest {
+export function adminRevisionRequest(
+  input: z.infer<typeof adminRevisionInputSchema>
+): AdminAppendRevisionRequest {
   return {
     operationId: input.operationId,
     revisionNumber: input.revisionNumber,
@@ -144,16 +161,10 @@ export async function handleCrudApi(
         });
       }
       if (request.method === "POST") {
-        const input = documentInput.parse(await json(request));
-        return Response.json(
-          await admin.createDocument(actor, {
-            slug: input.slug,
-            type: input.type,
-            ...(input.documentId === undefined ? {} : { documentId: input.documentId }),
-            ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt })
-          }),
-          { status: 201 }
-        );
+        const input = adminDocumentInputSchema.parse(await json(request));
+        return Response.json(await admin.createDocument(actor, adminDocumentRequest(input)), {
+          status: 201
+        });
       }
     }
     if (parts[0] === "documents" && parts[1] !== undefined) {
@@ -169,8 +180,8 @@ export async function handleCrudApi(
         return Response.json({ identity, current });
       }
       if (parts.length === 2 && request.method === "PUT") {
-        const input = revisionInput.parse(await json(request));
-        return Response.json(await admin.appendRevision(actor, slug, adminRevision(input)), {
+        const input = adminRevisionInputSchema.parse(await json(request));
+        return Response.json(await admin.appendRevision(actor, slug, adminRevisionRequest(input)), {
           status: 201
         });
       }
@@ -211,10 +222,13 @@ export async function handleCrudApi(
           });
         }
         if (request.method === "POST" || request.method === "PUT") {
-          const input = revisionInput.parse(await json(request));
-          return Response.json(await admin.appendRevision(actor, slug, adminRevision(input)), {
-            status: 201
-          });
+          const input = adminRevisionInputSchema.parse(await json(request));
+          return Response.json(
+            await admin.appendRevision(actor, slug, adminRevisionRequest(input)),
+            {
+              status: 201
+            }
+          );
         }
       }
       const revisionId = parts[3];

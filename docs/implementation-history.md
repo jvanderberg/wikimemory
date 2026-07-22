@@ -1,5 +1,12 @@
 # Implementation history
 
+## 0.3.3
+
+- Web backup and restore fetch bounded, authenticated pages, process the archive in the browser,
+  and apply restores as resumable operations. Large histories no longer consume one Cloudflare
+  Worker's CPU, memory, or subrequest budget.
+- `wikimemory backup` now creates a local archive directly; `backup create` remains compatible.
+
 ## 0.3.2
 
 - Complete web backups now load a workspace in four bulk D1 reads instead of issuing three

@@ -28,7 +28,7 @@ mismatches, and checksum failures.
 
 ```sh
 npx wikimemory api login --deployment NAME
-npx wikimemory backup create --deployment NAME --output backup.wmem.zip
+npx wikimemory backup --deployment NAME --output backup.wmem.zip
 npx wikimemory backup inspect backup.wmem.zip
 npx wikimemory backup verify backup.wmem.zip
 npx wikimemory restore --deployment NAME backup.wmem.zip
@@ -36,7 +36,7 @@ npx wikimemory restore --deployment NAME backup.wmem.zip
 
 The web application's **Manage → Backup and restore** section provides the same ZIP
 download, validation, preview, and restore flow. For a local development server, replace
-`--deployment NAME` with `--local` on `api login`, `backup create`, and `restore`.
+`--deployment NAME` with `--local` on `api login`, `backup`, and `restore`.
 
 Restore is resumable and idempotent when existing identities and revisions match. It
 stops on conflict rather than rewriting history. A newly installed instance containing

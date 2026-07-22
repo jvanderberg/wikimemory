@@ -1,10 +1,11 @@
-import { previewArchiveRestore, restoreArchive } from "../archive/restore";
+import { z } from "zod";
 import {
-  archiveForOwner,
-  restoreConfirmation,
-  uploadedArchive,
-  webArchiveApi
-} from "../archive/web";
+  adminDocumentInputSchema,
+  adminDocumentRequest,
+  adminRevisionInputSchema,
+  adminRevisionRequest
+} from "../api/crud";
+import { restoreConfirmation } from "../archive/web";
 import { ensureLocalOwner, localOwnerContext } from "../auth/local";
 import {
   endProductionWebSession,
@@ -20,10 +21,13 @@ import {
   requireRecentPasskeyAuthentication,
   revokePasskey
 } from "../auth/passkey-management";
+import { AdminService } from "../domain/admin-service";
 import { DomainError } from "../domain/errors";
 import { MemoryService } from "../domain/memory-service";
+import { isStarterRevision } from "../domain/starter-content";
 import type { OwnerContext } from "../domain/types";
 import type { Env } from "../env";
+import { LATEST_SCHEMA_VERSION } from "../version";
 
 function cookieValue(request: Request, name: string): string | null {
   const part = (request.headers.get("cookie") ?? "")
@@ -49,6 +53,11 @@ async function owner(request: Request, env: Env): Promise<OwnerContext | null> {
 }
 
 function jsonError(error: unknown): Response {
+  if (error instanceof z.ZodError)
+    return Response.json(
+      { error: "validation_failed", message: "Request does not match the restore schema" },
+      { status: 400 }
+    );
   if (!(error instanceof DomainError)) throw error;
   const status =
     error.code === "not_found"
@@ -92,6 +101,37 @@ async function manage(request: Request, env: Env, context: OwnerContext): Promis
         : [],
     restoreConfirmation: restoreConfirmation(env, request.url)
   });
+}
+
+export async function deletePristineStarters(
+  admin: AdminService,
+  service: MemoryService,
+  context: OwnerContext
+): Promise<void> {
+  const documents = await admin.listDocuments(context, null, 3);
+  if (
+    documents.length !== 2 ||
+    !documents.every(
+      (document) =>
+        document.type === "system" && (document.slug === "home" || document.slug === "now")
+    )
+  )
+    throw new DomainError("forbidden", "Only untouched starter content can be replaced implicitly");
+  const revisions = await Promise.all(
+    documents.map(async (document) => await service.get(context, document.slug))
+  );
+  if (
+    !revisions.every((revision) =>
+      revision.slug === "home" || revision.slug === "now"
+        ? isStarterRevision(revision.slug, revision)
+        : false
+    )
+  )
+    throw new DomainError("forbidden", "Only untouched starter content can be replaced implicitly");
+  for (const document of documents) {
+    const authorization = await service.authorizePurge(context, document.slug, document.slug);
+    await service.purge(context, authorization.id, document.slug);
+  }
 }
 
 export async function handleWebApi(request: Request, env: Env): Promise<Response> {
@@ -154,18 +194,36 @@ export async function handleWebApi(request: Request, env: Env): Promise<Response
     }
     if (url.pathname === "/api/app/manage" && request.method === "GET")
       return await manage(request, env, context);
-    if (url.pathname === "/api/app/backup" && request.method === "GET") {
-      const archive = await archiveForOwner(env, context);
-      const date = new Date().toISOString().slice(0, 10);
-      return new Response(archive, {
-        headers: {
-          "content-type": "application/zip",
-          "content-disposition": `attachment; filename="wikimemory-${date}.wmem.zip"`,
-          "cache-control": "no-store",
-          "x-content-type-options": "nosniff"
-        }
+    const admin = new AdminService(env.DB);
+    if (url.pathname === "/api/app/backup/snapshot" && request.method === "GET")
+      return Response.json(await admin.archiveFingerprint(context, LATEST_SCHEMA_VERSION), {
+        headers: { "cache-control": "no-store" }
       });
+    if (url.pathname === "/api/app/backup/documents" && request.method === "GET") {
+      const after = url.searchParams.get("after");
+      const items = await admin.listDocuments(context, after, 100);
+      return Response.json(
+        { items, next: items.length === 100 ? (items.at(-1)?.slug ?? null) : null },
+        { headers: { "cache-control": "no-store" } }
+      );
     }
+    if (url.pathname === "/api/app/backup/revisions" && request.method === "GET") {
+      const afterSlug = url.searchParams.get("afterSlug");
+      const rawRevision = url.searchParams.get("afterRevision");
+      const afterRevision = rawRevision === null ? 0 : Number(rawRevision);
+      return Response.json(
+        await admin.listArchiveRevisions(context, afterSlug, afterRevision, 20),
+        { headers: { "cache-control": "no-store" } }
+      );
+    }
+    if (url.pathname === "/api/app/backup" && request.method === "GET")
+      return Response.json(
+        {
+          error: "browser_archive_required",
+          message: "Open Manage Wikimemory and choose Download complete backup."
+        },
+        { status: 410, headers: { "cache-control": "no-store" } }
+      );
     if (url.pathname === "/api/app/logout" && request.method === "POST") {
       requireSameOrigin(request);
       if (env.APP_ENV === "production") await endProductionWebSession(request, env);
@@ -179,35 +237,50 @@ export async function handleWebApi(request: Request, env: Env): Promise<Response
       );
     }
     if (request.method === "POST" || request.method === "DELETE") requireSameOrigin(request);
-    if (url.pathname === "/api/app/restore/preview" && request.method === "POST") {
-      const { archive } = await uploadedArchive(request);
-      return Response.json({
-        manifest: archive.manifest,
-        preview: await previewArchiveRestore(webArchiveApi(env, context), archive)
+    if (
+      (url.pathname === "/api/app/restore/preview" || url.pathname === "/api/app/restore") &&
+      request.method === "POST"
+    )
+      return Response.json(
+        {
+          error: "browser_restore_required",
+          message: "Open Manage Wikimemory and choose a backup file to restore."
+        },
+        { status: 410, headers: { "cache-control": "no-store" } }
+      );
+    if (url.pathname === "/api/app/restore/documents" && request.method === "POST") {
+      const input = adminDocumentInputSchema.parse(await request.json());
+      return Response.json(await admin.createDocument(context, adminDocumentRequest(input)), {
+        status: 201
       });
     }
-    if (url.pathname === "/api/app/restore" && request.method === "POST") {
-      const { archive, form } = await uploadedArchive(request);
-      const replace = form.get("replace") === "true";
-      if (replace) {
-        const expected = restoreConfirmation(env, request.url);
-        if (form.get("confirmation") !== expected)
-          throw new DomainError("validation_failed", `Type ${expected} to confirm replacement`);
-        if (env.APP_ENV === "production")
-          requireRecentPasskeyAuthentication(context.reauthenticatedAt);
-      }
-      try {
-        const imported = await restoreArchive(webArchiveApi(env, context), archive, replace);
-        return Response.json({
-          restored: true,
-          documents: archive.documents.length,
-          newRevisions: imported
-        });
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith("Document conflict"))
-          throw new DomainError("revision_conflict", error.message);
-        throw error;
-      }
+    if (url.pathname.startsWith("/api/app/restore/revisions/") && request.method === "POST") {
+      const slug = decodeURIComponent(url.pathname.slice("/api/app/restore/revisions/".length));
+      const input = adminRevisionInputSchema.parse(await request.json());
+      return Response.json(await admin.appendRevision(context, slug, adminRevisionRequest(input)), {
+        status: 201
+      });
+    }
+    if (url.pathname === "/api/app/restore/starters" && request.method === "DELETE") {
+      await deletePristineStarters(admin, service, context);
+      return Response.json({ deleted: ["home", "now"] });
+    }
+    if (url.pathname.startsWith("/api/app/restore/documents/") && request.method === "DELETE") {
+      const slug = decodeURIComponent(url.pathname.slice("/api/app/restore/documents/".length));
+      const body: unknown = await request.json();
+      const expected = restoreConfirmation(env, request.url);
+      if (
+        typeof body !== "object" ||
+        body === null ||
+        !("confirmation" in body) ||
+        body.confirmation !== expected
+      )
+        throw new DomainError("validation_failed", `Type ${expected} to confirm replacement`);
+      if (env.APP_ENV === "production")
+        requireRecentPasskeyAuthentication(context.reauthenticatedAt);
+      const authorization = await service.authorizePurge(context, slug, slug);
+      await service.purge(context, authorization.id, slug);
+      return Response.json({ deleted: slug });
     }
     if (
       url.pathname === "/api/app/passkeys" &&

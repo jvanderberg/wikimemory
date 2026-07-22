@@ -16,7 +16,60 @@ import { createRoot } from "react-dom/client";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { z } from "zod";
+import type { WikimemoryArchive } from "../../src/archive/format.ts";
+import type { ArchiveApi } from "../../src/archive/restore.ts";
 import "./styles.css";
+
+const documentTypeSchema = z.enum(["system", "project", "topic", "source", "note"]);
+const linkKindSchema = z.enum(["related", "part_of", "supersedes", "cites", "contradicts"]);
+const archiveDocumentSchema = z.object({
+  documentId: z.string(),
+  workspaceId: z.string(),
+  slug: z.string(),
+  type: documentTypeSchema,
+  createdAt: z.string()
+});
+const archiveRevisionSchema = z.object({
+  documentId: z.string(),
+  workspaceId: z.string(),
+  slug: z.string(),
+  type: documentTypeSchema,
+  revisionId: z.string(),
+  revisionNumber: z.number().int().positive(),
+  parentRevisionId: z.string().nullable(),
+  title: z.string(),
+  body: z.string(),
+  summary: z.string().nullable(),
+  createdAt: z.string(),
+  principalId: z.string(),
+  clientId: z.string(),
+  agentLabel: z.string().nullable(),
+  reason: z.string(),
+  restoredFromRevisionId: z.string().nullable(),
+  metadata: z.array(
+    z.object({ key: z.string(), value: z.string(), cardinality: z.enum(["singleton", "multi"]) })
+  ),
+  links: z.array(
+    z.object({
+      kind: linkKindSchema,
+      targetSlug: z.string(),
+      targetDocumentId: z.string().nullable(),
+      origin: z.enum(["explicit", "body"])
+    })
+  )
+});
+const archiveSnapshotSchema = z.object({
+  databaseSchemaVersion: z.string(),
+  fingerprint: z.string()
+});
+const archiveDocumentsPageSchema = z.object({
+  items: z.array(archiveDocumentSchema),
+  next: z.string().nullable()
+});
+const archiveRevisionsPageSchema = z.object({
+  items: z.array(archiveRevisionSchema),
+  next: z.object({ slug: z.string(), revisionNumber: z.number().int().positive() }).nullable()
+});
 
 const indexEntry = z.object({
   slug: z.string(),
@@ -90,11 +143,6 @@ const restorePreviewSchema = z.object({
     replacesStarterContent: z.boolean(),
     conflicts: z.array(z.object({ slug: z.string(), message: z.string() }))
   })
-});
-const restoreResultSchema = z.object({
-  restored: z.literal(true),
-  documents: z.number(),
-  newRevisions: z.number()
 });
 const revokePasskeySchema = z.object({
   revoked: z.string(),
@@ -175,6 +223,118 @@ async function api(path: string, init?: RequestInit): Promise<unknown> {
   const headers = new Headers(init?.headers);
   headers.set("content-type", "application/json");
   return await json(await fetch(path, { ...init, headers }));
+}
+
+interface WorkspaceArchiveData {
+  databaseSchemaVersion: string;
+  documents: z.infer<typeof archiveDocumentSchema>[];
+  revisions: z.infer<typeof archiveRevisionSchema>[];
+}
+
+async function loadWorkspaceArchiveData(
+  progress?: (revisionCount: number) => void
+): Promise<WorkspaceArchiveData> {
+  const initial = archiveSnapshotSchema.parse(await api("/api/app/backup/snapshot"));
+  const documents: z.infer<typeof archiveDocumentSchema>[] = [];
+  let documentCursor: string | null = null;
+  for (;;) {
+    const query = documentCursor === null ? "" : `?after=${encodeURIComponent(documentCursor)}`;
+    const page = archiveDocumentsPageSchema.parse(await api(`/api/app/backup/documents${query}`));
+    documents.push(...page.items);
+    documentCursor = page.next;
+    if (documentCursor === null) break;
+  }
+  const revisions: z.infer<typeof archiveRevisionSchema>[] = [];
+  let revisionCursor: z.infer<typeof archiveRevisionsPageSchema>["next"] = null;
+  for (;;) {
+    const query =
+      revisionCursor === null
+        ? ""
+        : `?afterSlug=${encodeURIComponent(revisionCursor.slug)}&afterRevision=${revisionCursor.revisionNumber}`;
+    const page = archiveRevisionsPageSchema.parse(await api(`/api/app/backup/revisions${query}`));
+    revisions.push(...page.items);
+    revisionCursor = page.next;
+    progress?.(revisions.length);
+    if (revisionCursor === null) break;
+  }
+  const final = archiveSnapshotSchema.parse(await api("/api/app/backup/snapshot"));
+  if (
+    final.fingerprint !== initial.fingerprint ||
+    final.databaseSchemaVersion !== initial.databaseSchemaVersion
+  )
+    throw new Error("Wikimemory changed while the operation was being prepared. Try again.");
+  return { databaseSchemaVersion: initial.databaseSchemaVersion, documents, revisions };
+}
+
+function browserRestoreApi(
+  source: WorkspaceArchiveData,
+  replacementConfirmation: string | null,
+  progress: (message: string) => void
+): ArchiveApi {
+  const documents = new Map(source.documents.map((document) => [document.slug, document]));
+  const revisions = new Map<string, z.infer<typeof archiveRevisionSchema>[]>();
+  for (const revision of source.revisions) {
+    const history = revisions.get(revision.slug) ?? [];
+    history.push(revision);
+    revisions.set(revision.slug, history);
+  }
+  let starterDeletionCompleted = false;
+  let completedWrites = 0;
+  const wrote = (): void => {
+    completedWrites += 1;
+    progress(`Restoring backup… ${completedWrites} changes applied`);
+  };
+  return {
+    listDocuments() {
+      return Promise.resolve([...documents.values()]);
+    },
+    async createDocument(input) {
+      const document = archiveDocumentSchema.parse(
+        await api("/api/app/restore/documents", {
+          method: "POST",
+          body: JSON.stringify(input)
+        })
+      );
+      documents.set(document.slug, document);
+      wrote();
+      return document;
+    },
+    listRevisions(slug) {
+      return Promise.resolve([...(revisions.get(slug) ?? [])]);
+    },
+    async appendRevision(slug, input) {
+      const revision = archiveRevisionSchema.parse(
+        await api(`/api/app/restore/revisions/${encodeURIComponent(slug)}`, {
+          method: "POST",
+          body: JSON.stringify(input)
+        })
+      );
+      const history = revisions.get(slug) ?? [];
+      history.push(revision);
+      revisions.set(slug, history);
+      wrote();
+      return revision;
+    },
+    async deleteDocument(slug) {
+      if (replacementConfirmation === null) {
+        if (starterDeletionCompleted) return;
+        await api("/api/app/restore/starters", { method: "DELETE", body: "{}" });
+        starterDeletionCompleted = true;
+        documents.delete("home");
+        documents.delete("now");
+        revisions.delete("home");
+        revisions.delete("now");
+      } else {
+        await api(`/api/app/restore/documents/${encodeURIComponent(slug)}`, {
+          method: "DELETE",
+          body: JSON.stringify({ confirmation: replacementConfirmation })
+        });
+        documents.delete(slug);
+        revisions.delete(slug);
+      }
+      wrote();
+    }
+  };
 }
 
 function useLoad<T>(
@@ -812,6 +972,7 @@ function Manage({ passkeysEnabled }: { passkeysEnabled: boolean }): React.JSX.El
   const [label, setLabel] = useState("");
   const [notice, setNotice] = useState("");
   const [backup, setBackup] = useState<File | null>(null);
+  const [archive, setArchive] = useState<WikimemoryArchive | null>(null);
   const [preview, setPreview] = useState<z.infer<typeof restorePreviewSchema> | null>(null);
   const [replace, setReplace] = useState(false);
   const [confirmation, setConfirmation] = useState("");
@@ -821,39 +982,87 @@ function Manage({ passkeysEnabled }: { passkeysEnabled: boolean }): React.JSX.El
     data.reload();
     return result;
   }
-  async function archiveRequest(path: string, includeRestoreOptions: boolean): Promise<unknown> {
-    if (backup === null) throw new Error("Choose a backup file");
-    const form = new FormData();
-    form.set("backup", backup);
-    if (includeRestoreOptions) {
-      form.set("replace", String(replace));
-      if (replace) form.set("confirmation", confirmation);
-    }
-    return await json(await fetch(path, { method: "POST", body: form }));
-  }
   async function inspectBackup(): Promise<void> {
     setArchiveBusy(true);
-    setNotice("");
+    setNotice("Inspecting backup…");
     try {
-      setPreview(
-        restorePreviewSchema.parse(await archiveRequest("/api/app/restore/preview", false))
+      if (backup === null) throw new Error("Choose a backup file");
+      const [{ readArchive }, { previewArchiveRestore }] = await Promise.all([
+        import("../../src/archive/format.ts"),
+        import("../../src/archive/restore.ts")
+      ]);
+      const parsed = await readArchive(new Uint8Array(await backup.arrayBuffer()));
+      const target = await loadWorkspaceArchiveData((count) => {
+        setNotice(`Inspecting backup… ${count} existing revisions loaded`);
+      });
+      const restorePreview = await previewArchiveRestore(
+        browserRestoreApi(target, null, () => {}),
+        parsed
       );
+      setArchive(parsed);
+      setPreview(
+        restorePreviewSchema.parse({ manifest: parsed.manifest, preview: restorePreview })
+      );
+      setNotice("Backup is valid and ready to restore.");
     } catch (error) {
+      setArchive(null);
       setPreview(null);
       setNotice(error instanceof Error ? error.message : "Could not inspect backup");
     } finally {
       setArchiveBusy(false);
     }
   }
+  async function downloadBackup(): Promise<void> {
+    setArchiveBusy(true);
+    setNotice("Preparing backup…");
+    try {
+      const source = await loadWorkspaceArchiveData((count) => {
+        setNotice(`Preparing backup… ${count} revisions loaded`);
+      });
+      const { createArchive } = await import("../../src/archive/format.ts");
+      const bytes = await createArchive(
+        source.documents,
+        source.revisions,
+        source.databaseSchemaVersion
+      );
+      const href = URL.createObjectURL(
+        new Blob([Uint8Array.from(bytes).buffer], { type: "application/zip" })
+      );
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = `wikimemory-${new Date().toISOString().slice(0, 10)}.wmem.zip`;
+      link.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(href);
+      }, 1_000);
+      setNotice(
+        `Backup ready: ${source.documents.length} documents, ${source.revisions.length} revisions.`
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not create backup");
+    } finally {
+      setArchiveBusy(false);
+    }
+  }
   async function restoreBackup(): Promise<void> {
     setArchiveBusy(true);
-    setNotice("");
+    setNotice("Restoring backup…");
     try {
-      const result = restoreResultSchema.parse(await archiveRequest("/api/app/restore", true));
+      if (archive === null) throw new Error("Inspect the backup before restoring it");
+      const target = await loadWorkspaceArchiveData((count) => {
+        setNotice(`Restoring backup… ${count} existing revisions loaded`);
+      });
+      const { restoreArchive } = await import("../../src/archive/restore.ts");
+      const imported = await restoreArchive(
+        browserRestoreApi(target, replace ? confirmation : null, setNotice),
+        archive,
+        replace
+      );
       setNotice(
-        `Backup restored: ${result.documents} documents and ${result.newRevisions} new revisions.`
+        `Backup restored: ${archive.documents.length} documents and ${imported} new revisions.`
       );
       setPreview(null);
+      setArchive(null);
       setBackup(null);
       setReplace(false);
       setConfirmation("");
@@ -970,9 +1179,9 @@ function Manage({ passkeysEnabled }: { passkeysEnabled: boolean }): React.JSX.El
       </section>
       <section className="panel">
         <h2>Backup and restore</h2>
-        <p>
-          <a href="/api/app/backup">Download complete backup</a>
-        </p>
+        <button disabled={archiveBusy} onClick={() => void downloadBackup()}>
+          Download complete backup
+        </button>
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -987,6 +1196,7 @@ function Manage({ passkeysEnabled }: { passkeysEnabled: boolean }): React.JSX.El
               required
               onChange={(event) => {
                 setBackup(event.target.files?.[0] ?? null);
+                setArchive(null);
                 setPreview(null);
               }}
             />

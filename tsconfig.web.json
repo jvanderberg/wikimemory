@@ -19,6 +19,7 @@
     "exactOptionalPropertyTypes": true,
     "useUnknownInCatchVariables": true,
     "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
     "noEmit": true,
     "skipLibCheck": true
   },

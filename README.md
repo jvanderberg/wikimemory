@@ -110,12 +110,15 @@ For automation, authorize the administrative CLI once:
 
 ```sh
 npx wikimemory api login
-npx wikimemory backup create --output wikimemory-backup.wmem.zip
+npx wikimemory backup --output wikimemory-backup.wmem.zip
 npx wikimemory backup verify wikimemory-backup.wmem.zip
 npx wikimemory restore wikimemory-backup.wmem.zip
 ```
 
-Against `wikimemory dev`, use the same commands with `--local`.
+Against `wikimemory dev`, use the same commands with `--local`. The CLI fetches data in
+pages and creates the archive on your computer. The web app creates and validates archives in
+your browser and applies restores as bounded operations, so large backups and restores do not
+consume a single Worker's resource budget.
 
 The ZIP contains human-readable Markdown, complete revision history, metadata, links,
 a versioned manifest, and SHA-256 checksums. It excludes passkeys, OAuth credentials,

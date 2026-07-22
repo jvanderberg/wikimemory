@@ -2,6 +2,8 @@ import { startAuthentication, startRegistration } from "@simplewebauthn/browser"
 import { expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
+import { createArchive } from "../../src/archive/format.ts";
+import type { DocumentIdentity, DocumentSnapshot } from "../../src/domain/types.ts";
 import { App, AppErrorBoundary } from "../src/main";
 
 vi.mock("@simplewebauthn/browser", () => ({
@@ -25,6 +27,36 @@ function session(environment: "local" | "production", authenticated = true): obj
     environment,
     ...(authenticated ? {} : { loginUrl: "/app/login" })
   };
+}
+
+async function backupFile(slug = "imported-note", documentId = "imported-document"): Promise<File> {
+  const identity: DocumentIdentity = {
+    documentId,
+    workspaceId: "source-workspace",
+    slug,
+    type: "note",
+    createdAt: "2026-07-21T12:00:00Z"
+  };
+  const revision: DocumentSnapshot = {
+    ...identity,
+    revisionId: "imported-revision",
+    revisionNumber: 1,
+    parentRevisionId: null,
+    title: "Imported note",
+    body: "Imported body",
+    summary: null,
+    principalId: "source-principal",
+    clientId: "source-client",
+    agentLabel: "importer",
+    reason: "restore test",
+    restoredFromRevisionId: null,
+    metadata: [],
+    links: []
+  };
+  const bytes = await createArchive([identity], [revision], "0004.sql", "2026-07-21T12:00:00Z");
+  return new File([Uint8Array.from(bytes).buffer], "test.wmem.zip", {
+    type: "application/zip"
+  });
 }
 
 test.afterEach(() => {
@@ -448,8 +480,11 @@ test("renders local management without passkey controls", async () => {
 
 test("downloads, inspects, and restores a backup from management", async () => {
   history.replaceState(null, "", "/app/manage");
-  const uploads: string[] = [];
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+  const operations: string[] = [];
+  const downloadClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:wikimemory-backup");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = requestUrl(input);
     if (url.pathname === "/api/app/session") return response(session("local"));
     if (url.pathname === "/api/app/manage")
@@ -459,54 +494,249 @@ test("downloads, inspects, and restores a backup from management", async () => {
         sessions: [],
         restoreConfirmation: "wikimemory-local"
       });
-    if (url.pathname === "/api/app/restore/preview") {
-      expect(init?.body).toBeInstanceOf(FormData);
-      uploads.push("preview");
+    if (url.pathname === "/api/app/backup/snapshot")
+      return response({ databaseSchemaVersion: "0004.sql", fingerprint: "0:0:0:0" });
+    if (url.pathname === "/api/app/backup/documents") return response({ items: [], next: null });
+    if (url.pathname === "/api/app/backup/revisions") return response({ items: [], next: null });
+    if (url.pathname === "/api/app/restore/documents") {
+      operations.push("create");
       return response({
-        manifest: {
-          formatVersion: 1,
-          createdAt: "2026-07-21T12:00:00Z",
-          counts: { documents: 2, revisions: 4 }
-        },
-        preview: {
-          documents: 2,
-          revisions: 4,
-          newDocuments: 1,
-          matchingDocuments: 1,
-          newRevisions: 2,
-          replacesStarterContent: true,
-          conflicts: []
-        }
+        documentId: "imported-document",
+        workspaceId: "target-workspace",
+        slug: "imported-note",
+        type: "note",
+        createdAt: "2026-07-21T12:00:00Z"
       });
     }
-    if (url.pathname === "/api/app/restore") {
-      expect(init?.body).toBeInstanceOf(FormData);
-      uploads.push("restore");
-      return response({ restored: true, documents: 2, newRevisions: 2 });
+    if (url.pathname === "/api/app/restore/revisions/imported-note") {
+      operations.push("revision");
+      return response({
+        documentId: "imported-document",
+        workspaceId: "target-workspace",
+        slug: "imported-note",
+        type: "note",
+        revisionId: "imported-revision",
+        revisionNumber: 1,
+        parentRevisionId: null,
+        title: "Imported note",
+        body: "Imported body",
+        summary: null,
+        createdAt: "2026-07-21T12:00:00Z",
+        principalId: "target-principal",
+        clientId: "web",
+        agentLabel: "importer",
+        reason: "restore test",
+        restoredFromRevisionId: null,
+        metadata: [],
+        links: []
+      });
     }
     return response({ error: "unexpected request" }, 500);
   });
 
   await render(<App />);
-  await expect
-    .element(page.getByRole("link", { name: "Download complete backup" }))
-    .toHaveAttribute("href", "/api/app/backup");
-  await page
-    .getByLabelText("Backup file")
-    .upload(new File(["archive"], "test.wmem.zip", { type: "application/zip" }));
+  await page.getByRole("button", { name: "Download complete backup" }).click();
+  await expect.element(page.getByText("Backup ready: 0 documents, 0 revisions.")).toBeVisible();
+  expect(downloadClick).toHaveBeenCalledOnce();
+  await page.getByLabelText("Backup file").upload(await backupFile());
   await page.getByRole("button", { name: "Inspect backup" }).click();
   await expect.element(page.getByText("No conflicts found.")).toBeVisible();
-  await expect.element(page.getByText(/2 documents, 4 revisions/u)).toBeVisible();
+  await expect.element(page.getByText(/1 documents, 1 revisions/u)).toBeVisible();
   await page.getByRole("button", { name: "Restore backup" }).click();
   await expect
-    .element(page.getByText("Backup restored: 2 documents and 2 new revisions."))
+    .element(page.getByText("Backup restored: 1 documents and 1 new revisions."))
     .toBeVisible();
-  expect(uploads).toEqual(["preview", "restore"]);
+  expect(operations).toEqual(["create", "revision"]);
+});
+
+test("restores over untouched starter pages with one bounded deletion", async () => {
+  history.replaceState(null, "", "/app/manage");
+  const operations: string[] = [];
+  const starterDocuments = ["home", "now"].map((slug) => ({
+    documentId: `${slug}-document`,
+    workspaceId: "target-workspace",
+    slug,
+    type: "system",
+    createdAt: "2026-07-20T12:00:00Z"
+  }));
+  const starterRevisions = starterDocuments.map((document) => ({
+    ...document,
+    revisionId: `${document.slug}-revision`,
+    revisionNumber: 1,
+    parentRevisionId: null,
+    title: document.slug === "home" ? "Wikimemory home" : "Now",
+    body:
+      document.slug === "home"
+        ? "# Wikimemory\n\nThe database is authoritative. See [[now]] for current focus."
+        : "# Now\n\n_(No active work has been recorded yet.)_",
+    summary:
+      document.slug === "home" ? "Standard orientation page." : "Current focus and active threads.",
+    createdAt: "2026-07-20T12:00:00Z",
+    principalId: "target-principal",
+    clientId: "seed",
+    agentLabel: "init",
+    reason: "seed",
+    restoredFromRevisionId: null,
+    metadata: [],
+    links:
+      document.slug === "home"
+        ? [
+            {
+              kind: "related",
+              targetSlug: "now",
+              targetDocumentId: "now-document",
+              origin: "body"
+            }
+          ]
+        : []
+  }));
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/app/session") return response(session("local"));
+    if (url.pathname === "/api/app/manage")
+      return response({
+        passkeys: [],
+        clients: [],
+        sessions: [],
+        restoreConfirmation: "wikimemory-local"
+      });
+    if (url.pathname === "/api/app/backup/snapshot")
+      return response({ databaseSchemaVersion: "0004.sql", fingerprint: "2:2:2:2" });
+    if (url.pathname === "/api/app/backup/documents")
+      return response({ items: starterDocuments, next: null });
+    if (url.pathname === "/api/app/backup/revisions")
+      return response({ items: starterRevisions, next: null });
+    if (url.pathname === "/api/app/restore/starters") {
+      operations.push("delete-starters");
+      return response({ deleted: ["home", "now"] });
+    }
+    if (url.pathname === "/api/app/restore/documents") {
+      operations.push("create");
+      return response({
+        documentId: "imported-document",
+        workspaceId: "target-workspace",
+        slug: "imported-note",
+        type: "note",
+        createdAt: "2026-07-21T12:00:00Z"
+      });
+    }
+    if (url.pathname === "/api/app/restore/revisions/imported-note") {
+      operations.push("revision");
+      return response({
+        documentId: "imported-document",
+        workspaceId: "target-workspace",
+        slug: "imported-note",
+        type: "note",
+        revisionId: "imported-revision",
+        revisionNumber: 1,
+        parentRevisionId: null,
+        title: "Imported note",
+        body: "Imported body",
+        summary: null,
+        createdAt: "2026-07-21T12:00:00Z",
+        principalId: "target-principal",
+        clientId: "web",
+        agentLabel: "importer",
+        reason: "restore test",
+        restoredFromRevisionId: null,
+        metadata: [],
+        links: []
+      });
+    }
+    return response({ error: "unexpected request" }, 500);
+  });
+
+  await render(<App />);
+  await page.getByLabelText("Backup file").upload(await backupFile());
+  await page.getByRole("button", { name: "Inspect backup" }).click();
+  await expect.element(page.getByText("No conflicts found.")).toBeVisible();
+  await page.getByRole("button", { name: "Restore backup" }).click();
+  await expect
+    .element(page.getByText("Backup restored: 1 documents and 1 new revisions."))
+    .toBeVisible();
+  expect(operations).toEqual(["delete-starters", "create", "revision"]);
+});
+
+test("rejects a backup if the workspace changes between paginated reads", async () => {
+  history.replaceState(null, "", "/app/manage");
+  let snapshots = 0;
+  const downloadClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/app/session") return response(session("local"));
+    if (url.pathname === "/api/app/manage")
+      return response({
+        passkeys: [],
+        clients: [],
+        sessions: [],
+        restoreConfirmation: "wikimemory-local"
+      });
+    if (url.pathname === "/api/app/backup/snapshot") {
+      snapshots += 1;
+      return response({
+        databaseSchemaVersion: "0004.sql",
+        fingerprint: snapshots === 1 ? "1:1:1:1" : "1:1:2:2"
+      });
+    }
+    if (url.pathname === "/api/app/backup/documents")
+      return url.searchParams.has("after")
+        ? response({ items: [], next: null })
+        : response({
+            items: [
+              {
+                documentId: "document",
+                workspaceId: "workspace",
+                slug: "note",
+                type: "note",
+                createdAt: "2026-07-22T00:00:00Z"
+              }
+            ],
+            next: "note"
+          });
+    if (url.pathname === "/api/app/backup/revisions")
+      return url.searchParams.has("afterSlug")
+        ? response({ items: [], next: null })
+        : response({
+            items: [
+              {
+                documentId: "document",
+                workspaceId: "workspace",
+                slug: "note",
+                type: "note",
+                revisionId: "revision",
+                revisionNumber: 1,
+                parentRevisionId: null,
+                title: "Note",
+                body: "Body",
+                summary: null,
+                createdAt: "2026-07-22T00:00:00Z",
+                principalId: "principal",
+                clientId: "client",
+                agentLabel: null,
+                reason: "test",
+                restoredFromRevisionId: null,
+                metadata: [],
+                links: []
+              }
+            ],
+            next: { slug: "note", revisionNumber: 1 }
+          });
+    return response({ error: "unexpected request" }, 500);
+  });
+
+  await render(<App />);
+  await page.getByRole("button", { name: "Download complete backup" }).click();
+  await expect
+    .element(
+      page.getByText("Wikimemory changed while the operation was being prepared. Try again.")
+    )
+    .toBeVisible();
+  expect(downloadClick).not.toHaveBeenCalled();
 });
 
 test("requires explicit confirmation before replacing conflicting content", async () => {
   history.replaceState(null, "", "/app/manage");
-  const replacements: FormData[] = [];
+  const replacements: string[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = requestUrl(input);
     if (url.pathname === "/api/app/session") return response(session("local"));
@@ -517,42 +747,69 @@ test("requires explicit confirmation before replacing conflicting content", asyn
         sessions: [],
         restoreConfirmation: "wikimemory-local"
       });
-    if (url.pathname === "/api/app/restore/preview")
+    if (url.pathname === "/api/app/backup/snapshot")
+      return response({ databaseSchemaVersion: "0004.sql", fingerprint: "1:1:0:0" });
+    if (url.pathname === "/api/app/backup/documents")
       return response({
-        manifest: {
-          formatVersion: 1,
-          createdAt: "2026-07-21T12:00:00Z",
-          counts: { documents: 1, revisions: 1 }
-        },
-        preview: {
-          documents: 1,
-          revisions: 1,
-          newDocuments: 0,
-          matchingDocuments: 0,
-          newRevisions: 0,
-          replacesStarterContent: false,
-          conflicts: [{ slug: "home", message: "The target differs." }]
-        }
+        items: [
+          {
+            documentId: "target-home",
+            workspaceId: "target-workspace",
+            slug: "home",
+            type: "system",
+            createdAt: "2026-07-20T12:00:00Z"
+          }
+        ],
+        next: null
       });
-    if (url.pathname === "/api/app/restore") {
-      if (init?.body instanceof FormData) replacements.push(init.body);
-      return response({ restored: true, documents: 1, newRevisions: 1 });
+    if (url.pathname === "/api/app/backup/revisions") return response({ items: [], next: null });
+    if (url.pathname === "/api/app/restore/documents/home" && init?.method === "DELETE") {
+      replacements.push(typeof init.body === "string" ? init.body : "");
+      return response({ deleted: "home" });
+    }
+    if (url.pathname === "/api/app/restore/documents")
+      return response({
+        documentId: "backup-home",
+        workspaceId: "target-workspace",
+        slug: "home",
+        type: "note",
+        createdAt: "2026-07-21T12:00:00Z"
+      });
+    if (url.pathname === "/api/app/restore/revisions/home") {
+      return response({
+        documentId: "backup-home",
+        workspaceId: "target-workspace",
+        slug: "home",
+        type: "note",
+        revisionId: "imported-revision",
+        revisionNumber: 1,
+        parentRevisionId: null,
+        title: "Imported note",
+        body: "Imported body",
+        summary: null,
+        createdAt: "2026-07-21T12:00:00Z",
+        principalId: "target-principal",
+        clientId: "web",
+        agentLabel: "importer",
+        reason: "restore test",
+        restoredFromRevisionId: null,
+        metadata: [],
+        links: []
+      });
     }
     return response({ error: "unexpected request" }, 500);
   });
 
   await render(<App />);
-  await page
-    .getByLabelText("Backup file")
-    .upload(new File(["archive"], "conflict.wmem.zip", { type: "application/zip" }));
+  await page.getByLabelText("Backup file").upload(await backupFile("home", "backup-home"));
   await page.getByRole("button", { name: "Inspect backup" }).click();
   await expect.element(page.getByText("home", { exact: true })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Restore backup" })).toBeDisabled();
   await page.getByLabelText("Replace every existing document before restoring").click();
   await page.getByLabelText("Type wikimemory-local to confirm").fill("wikimemory-local");
   await page.getByRole("button", { name: "Replace and restore" }).click();
-  await expect.poll(() => replacements.at(0)?.get("replace")).toBe("true");
-  expect(replacements.at(0)?.get("confirmation")).toBe("wikimemory-local");
+  await expect.poll(() => replacements.length).toBe(1);
+  expect(replacements[0]).toBe('{"confirmation":"wikimemory-local"}');
 });
 
 test("renders login, local authorization, and missing registration token routes", async () => {
