@@ -15,6 +15,30 @@ import { DOCUMENT_TYPES, LINK_KINDS } from "./types";
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const METADATA_KEY = /^[a-z][a-z0-9_]{0,99}$/u;
 
+interface ArchiveRevisionRow {
+  document_id: string;
+  workspace_id: string;
+  slug: string;
+  type: DocumentType;
+  revision_id: string;
+  revision_number: number;
+  parent_revision_id: string | null;
+  title: string;
+  body: string;
+  summary: string | null;
+  created_at: string;
+  principal_id: string;
+  client_id: string;
+  agent_label: string | null;
+  reason: string;
+  restored_from_revision_id: string | null;
+}
+
+export interface AdminWorkspaceArchive {
+  documents: DocumentIdentity[];
+  revisions: DocumentSnapshot[];
+}
+
 function requireScope(actor: ActorContext, scope: "memory:read" | "memory:admin"): void {
   if (!actor.scopes.has(scope))
     throw new DomainError("forbidden", `Missing required scope ${scope}`);
@@ -70,6 +94,112 @@ function validateLinks(values: StoredLink[]): void {
 
 export class AdminService {
   constructor(private readonly db: D1Database) {}
+
+  async exportWorkspace(actor: ActorContext): Promise<AdminWorkspaceArchive> {
+    requireScope(actor, "memory:read");
+    const [documentRows, revisionRows, metadataRows, linkRows] = await Promise.all([
+      this.db
+        .prepare(
+          `SELECT id, workspace_id, slug, type, created_at FROM documents
+           WHERE workspace_id = ? ORDER BY slug`
+        )
+        .bind(actor.workspaceId)
+        .all<{
+          id: string;
+          workspace_id: string;
+          slug: string;
+          type: DocumentType;
+          created_at: string;
+        }>(),
+      this.db
+        .prepare(
+          `SELECT d.id document_id, d.workspace_id, d.slug, d.type,
+                  r.id revision_id, r.revision_number, r.parent_revision_id,
+                  r.title, r.body, r.summary, r.created_at, r.principal_id,
+                  r.client_id, r.agent_label, r.reason, r.restored_from_revision_id
+           FROM documents d JOIN revisions r ON r.doc_id = d.id
+           WHERE d.workspace_id = ? ORDER BY d.slug, r.revision_number`
+        )
+        .bind(actor.workspaceId)
+        .all<ArchiveRevisionRow>(),
+      this.db
+        .prepare(
+          `SELECT revision_id, key, value, cardinality FROM revision_metadata
+           WHERE workspace_id = ? ORDER BY revision_id, key, value`
+        )
+        .bind(actor.workspaceId)
+        .all<{
+          revision_id: string;
+          key: string;
+          value: string;
+          cardinality: MetadataValue["cardinality"];
+        }>(),
+      this.db
+        .prepare(
+          `SELECT rl.revision_id, rl.kind, rl.target_slug,
+                  COALESCE(rl.target_document_id, target.id) target_document_id, rl.origin
+           FROM revision_links rl
+           LEFT JOIN documents target
+             ON target.workspace_id = rl.workspace_id AND target.slug = rl.target_slug
+           WHERE rl.workspace_id = ?
+           ORDER BY rl.revision_id, rl.kind, rl.target_slug, rl.origin`
+        )
+        .bind(actor.workspaceId)
+        .all<{
+          revision_id: string;
+          kind: StoredLink["kind"];
+          target_slug: string;
+          target_document_id: string | null;
+          origin: StoredLink["origin"];
+        }>()
+    ]);
+    const metadata = new Map<string, MetadataValue[]>();
+    for (const row of metadataRows.results) {
+      const values = metadata.get(row.revision_id) ?? [];
+      values.push({ key: row.key, value: row.value, cardinality: row.cardinality });
+      metadata.set(row.revision_id, values);
+    }
+    const links = new Map<string, StoredLink[]>();
+    for (const row of linkRows.results) {
+      const values = links.get(row.revision_id) ?? [];
+      values.push({
+        kind: row.kind,
+        targetSlug: row.target_slug,
+        targetDocumentId: row.target_document_id,
+        origin: row.origin
+      });
+      links.set(row.revision_id, values);
+    }
+    return {
+      documents: documentRows.results.map((row) => ({
+        documentId: row.id,
+        workspaceId: row.workspace_id,
+        slug: row.slug,
+        type: row.type,
+        createdAt: row.created_at
+      })),
+      revisions: revisionRows.results.map((row) => ({
+        documentId: row.document_id,
+        workspaceId: row.workspace_id,
+        slug: row.slug,
+        type: row.type,
+        revisionId: row.revision_id,
+        revisionNumber: row.revision_number,
+        parentRevisionId: row.parent_revision_id,
+        title: row.title,
+        body: row.body,
+        summary: row.summary,
+        createdAt: row.created_at,
+        principalId: row.principal_id,
+        clientId: row.client_id,
+        agentLabel: row.agent_label,
+        reason: row.reason,
+        restoredFromRevisionId: row.restored_from_revision_id,
+        metadata: metadata.get(row.revision_id) ?? [],
+        links: links.get(row.revision_id) ?? []
+      }))
+    };
+  }
 
   async listDocuments(
     actor: ActorContext,

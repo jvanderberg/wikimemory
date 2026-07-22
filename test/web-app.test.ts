@@ -1,6 +1,7 @@
 import { env, exports } from "cloudflare:workers";
 import { createArchive, readArchive } from "../src/archive/format";
-import { localOwnerActor } from "../src/auth/local";
+import { archiveForOwner } from "../src/archive/web";
+import { localOwnerActor, localOwnerContext } from "../src/auth/local";
 import { MemoryService } from "../src/domain/memory-service";
 import type { DocumentIdentity, DocumentSnapshot } from "../src/domain/types";
 
@@ -264,6 +265,20 @@ describe("web application JSON API", () => {
   });
 
   it("downloads, previews, and restores a complete ZIP backup", async () => {
+    let preparedStatements = 0;
+    const countingDb = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare")
+          return (query: string) => {
+            preparedStatements += 1;
+            return target.prepare(query);
+          };
+        return undefined;
+      }
+    });
+    await archiveForOwner({ DB: countingDb }, localOwnerContext("web-backup-query-test"));
+    expect(preparedStatements).toBe(4);
+
     const downloaded = await exports.default.fetch(ownerRequest("/api/app/backup"));
     expect(downloaded.status).toBe(200);
     expect(downloaded.headers.get("content-disposition")).toContain(".wmem.zip");
@@ -272,6 +287,22 @@ describe("web application JSON API", () => {
     expect(current.documents.map((item) => item.slug)).toEqual(
       expect.arrayContaining(["home", "now"])
     );
+    const currentHome = current.revisions.find((item) => item.slug === "home");
+    const storedHome = await new MemoryService(env.DB).get(
+      localOwnerActor("web-backup-test"),
+      "home"
+    );
+    expect(currentHome).toMatchObject({
+      documentId: storedHome.documentId,
+      revisionId: storedHome.revisionId,
+      title: storedHome.title,
+      body: storedHome.body,
+      summary: storedHome.summary,
+      agentLabel: storedHome.agentLabel,
+      reason: storedHome.reason,
+      metadata: storedHome.metadata,
+      links: storedHome.links
+    });
     const downloadedForm = new FormData();
     downloadedForm.set(
       "backup",

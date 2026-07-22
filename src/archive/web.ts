@@ -50,13 +50,12 @@ export function webArchiveApi(env: Env, context: OwnerContext): ArchiveApi {
   };
 }
 
-export async function archiveForOwner(env: Env, context: OwnerContext): Promise<Uint8Array> {
-  const api = webArchiveApi(env, context);
-  const documents = await api.listDocuments();
-  const revisions = (
-    await Promise.all(documents.map((item) => api.listRevisions(item.slug)))
-  ).flat();
-  return await createArchive(documents, revisions, LATEST_SCHEMA_VERSION);
+export async function archiveForOwner(
+  env: Pick<Env, "DB">,
+  context: OwnerContext
+): Promise<Uint8Array> {
+  const snapshot = await new AdminService(env.DB).exportWorkspace(context);
+  return await createArchive(snapshot.documents, snapshot.revisions, LATEST_SCHEMA_VERSION);
 }
 
 export async function uploadedArchive(request: Request): Promise<{

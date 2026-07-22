@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { AdminService } from "../src/domain/admin-service";
 import type { DomainError } from "../src/domain/errors";
 import { MemoryService, normalizeSourceUrl } from "../src/domain/memory-service";
 import type {
@@ -41,6 +42,78 @@ async function fixture(label: string): Promise<{ actor: ActorContext; service: M
 }
 
 describe("MemoryService", () => {
+  it("exports complete revision history with metadata and links in bulk", async () => {
+    const { actor, service } = await fixture("bulk-archive");
+    const target = await service.ingest(actor, {
+      operationId: "bulk-archive-target",
+      reason: "create archive link target",
+      slug: "archive-target",
+      type: "project",
+      title: "Archive target",
+      body: "Target body"
+    });
+    const first = await service.ingest(actor, {
+      operationId: "bulk-archive-first",
+      reason: "create historical archive fixture",
+      slug: "archive-origin",
+      type: "note",
+      title: "Archive origin",
+      body: "First body",
+      metadata: { set: { status: "active" }, multi: { tag: { add: ["backup"] } } },
+      links: { add: [{ kind: "part_of", targetSlug: "archive-target" }] }
+    });
+    const second = await service.ingest(actor, {
+      operationId: "bulk-archive-second",
+      reason: "update historical archive fixture",
+      slug: "archive-origin",
+      expectedRevisionId: first.revisionId,
+      title: "Archive origin updated",
+      body: "Second body",
+      metadata: { set: { status: "done" } }
+    });
+
+    const archive = await new AdminService(testEnv.DB).exportWorkspace(actor);
+    expect(archive.documents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ documentId: target.documentId, slug: "archive-target" }),
+        expect.objectContaining({ documentId: first.documentId, slug: "archive-origin" })
+      ])
+    );
+    const history = archive.revisions.filter((revision) => revision.slug === "archive-origin");
+    expect(history).toHaveLength(2);
+    expect(history[0]).toMatchObject({
+      revisionId: first.revisionId,
+      revisionNumber: 1,
+      body: "First body",
+      links: [
+        {
+          kind: "part_of",
+          targetSlug: "archive-target",
+          targetDocumentId: target.documentId,
+          origin: "explicit"
+        }
+      ]
+    });
+    expect(history[0]?.metadata).toEqual(
+      expect.arrayContaining([
+        { key: "status", value: "active", cardinality: "singleton" },
+        { key: "tag", value: "backup", cardinality: "multi" }
+      ])
+    );
+    expect(history[1]).toMatchObject({
+      revisionId: second.revisionId,
+      revisionNumber: 2,
+      parentRevisionId: first.revisionId,
+      body: "Second body"
+    });
+    expect(history[1]?.metadata).toEqual(
+      expect.arrayContaining([
+        { key: "status", value: "done", cardinality: "singleton" },
+        { key: "tag", value: "backup", cardinality: "multi" }
+      ])
+    );
+  });
+
   it("isolates documents and search results by authenticated workspace", async () => {
     const left = await fixture("isolation-left");
     const right = await fixture("isolation-right");

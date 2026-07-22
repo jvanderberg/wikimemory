@@ -1,5 +1,11 @@
 # Implementation history
 
+## 0.3.2
+
+- Complete web backups now load a workspace in four bulk D1 reads instead of issuing three
+  additional queries for every historical revision. This keeps large imported histories within
+  Cloudflare's per-request database-operation limits while preserving the archive format.
+
 ## 0.3.1
 
 - Cloudflare lifecycle commands now execute the exact Wrangler version installed with
