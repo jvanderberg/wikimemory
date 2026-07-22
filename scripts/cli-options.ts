@@ -1,7 +1,12 @@
 import { deploymentPaths } from "./deployment-record.ts";
 
-export function deploymentArguments(args: string[]): { deployment: string; remaining: string[] } {
+export function deploymentArguments(args: string[]): {
+  deployment: string;
+  local: boolean;
+  remaining: string[];
+} {
   let deployment = "wikimemory";
+  let local = false;
   const remaining: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
@@ -12,9 +17,13 @@ export function deploymentArguments(args: string[]): { deployment: string; remai
       deploymentPaths(value);
       deployment = value;
       index += 1;
+    } else if (argument === "--local") {
+      local = true;
     } else if (argument !== undefined) remaining.push(argument);
   }
-  return { deployment, remaining };
+  if (local && deployment !== "wikimemory")
+    throw new Error("--local cannot be combined with --deployment");
+  return { deployment, local, remaining };
 }
 
 export function installArguments(deployment: string, args: string[]): string[] {

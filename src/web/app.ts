@@ -1,3 +1,10 @@
+import { previewArchiveRestore, restoreArchive } from "../archive/restore";
+import {
+  archiveForOwner,
+  restoreConfirmation,
+  uploadedArchive,
+  webArchiveApi
+} from "../archive/web";
 import { ensureLocalOwner, localOwnerContext } from "../auth/local";
 import {
   endProductionWebSession,
@@ -14,7 +21,6 @@ import {
   revokePasskey
 } from "../auth/passkey-management";
 import { DomainError } from "../domain/errors";
-import { ExportService } from "../domain/export-service";
 import { MemoryService } from "../domain/memory-service";
 import type { OwnerContext } from "../domain/types";
 import type { Env } from "../env";
@@ -83,27 +89,8 @@ async function manage(request: Request, env: Env, context: OwnerContext): Promis
     sessions:
       env.APP_ENV === "production"
         ? await listProductionWebSessions(request, env, context.principalId)
-        : []
-  });
-}
-
-async function exportResponse(
-  env: Env,
-  context: OwnerContext,
-  format: "jsonl" | "md"
-): Promise<Response> {
-  const service = new ExportService(env.DB);
-  const content =
-    format === "jsonl" ? await service.jsonl(context) : await service.markdown(context);
-  const date = new Date().toISOString().slice(0, 10);
-  return new Response(content, {
-    headers: {
-      "content-type":
-        format === "jsonl" ? "application/x-ndjson; charset=utf-8" : "text/markdown; charset=utf-8",
-      "content-disposition": `attachment; filename="wikimemory-${date}.${format}"`,
-      "cache-control": "no-store",
-      "x-content-type-options": "nosniff"
-    }
+        : [],
+    restoreConfirmation: restoreConfirmation(env, request.url)
   });
 }
 
@@ -132,21 +119,34 @@ export async function handleWebApi(request: Request, env: Env): Promise<Response
     if (context === null)
       return Response.json({ error: "unauthenticated", loginUrl: "/app/login" }, { status: 401 });
     const service = new MemoryService(env.DB);
-    if (url.pathname === "/api/app/documents" && request.method === "GET")
-      return Response.json({ items: await service.index(context, { limit: 100 }) });
+    if (url.pathname === "/api/app/documents" && request.method === "GET") {
+      const afterSlug = url.searchParams.get("after");
+      return Response.json({
+        items: await service.index(context, {
+          limit: 100,
+          ...(afterSlug === null ? {} : { afterSlug })
+        })
+      });
+    }
     if (url.pathname === "/api/app/search" && request.method === "GET")
       return Response.json({
         hits: await service.recall(context, (url.searchParams.get("q") ?? "").trim(), 20)
       });
     if (url.pathname === "/api/app/recent" && request.method === "GET") {
       const rows = await env.DB.prepare(
-        `SELECT d.slug, r.id revision_id, r.revision_number, r.created_at, r.reason FROM revisions r JOIN documents d ON d.id = r.doc_id WHERE r.workspace_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 100`
+        `SELECT d.slug, d.type, r.id revision_id, r.revision_number, r.title, r.summary,
+                r.created_at, r.reason
+         FROM revisions r JOIN documents d ON d.id = r.doc_id
+         WHERE r.workspace_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 100`
       )
         .bind(context.workspaceId)
         .all<{
           slug: string;
+          type: string;
           revision_id: string;
           revision_number: number;
+          title: string;
+          summary: string | null;
           created_at: string;
           reason: string;
         }>();
@@ -154,10 +154,18 @@ export async function handleWebApi(request: Request, env: Env): Promise<Response
     }
     if (url.pathname === "/api/app/manage" && request.method === "GET")
       return await manage(request, env, context);
-    if (url.pathname === "/api/app/export.jsonl" && request.method === "GET")
-      return await exportResponse(env, context, "jsonl");
-    if (url.pathname === "/api/app/export.md" && request.method === "GET")
-      return await exportResponse(env, context, "md");
+    if (url.pathname === "/api/app/backup" && request.method === "GET") {
+      const archive = await archiveForOwner(env, context);
+      const date = new Date().toISOString().slice(0, 10);
+      return new Response(archive, {
+        headers: {
+          "content-type": "application/zip",
+          "content-disposition": `attachment; filename="wikimemory-${date}.wmem.zip"`,
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff"
+        }
+      });
+    }
     if (url.pathname === "/api/app/logout" && request.method === "POST") {
       requireSameOrigin(request);
       if (env.APP_ENV === "production") await endProductionWebSession(request, env);
@@ -171,6 +179,36 @@ export async function handleWebApi(request: Request, env: Env): Promise<Response
       );
     }
     if (request.method === "POST" || request.method === "DELETE") requireSameOrigin(request);
+    if (url.pathname === "/api/app/restore/preview" && request.method === "POST") {
+      const { archive } = await uploadedArchive(request);
+      return Response.json({
+        manifest: archive.manifest,
+        preview: await previewArchiveRestore(webArchiveApi(env, context), archive)
+      });
+    }
+    if (url.pathname === "/api/app/restore" && request.method === "POST") {
+      const { archive, form } = await uploadedArchive(request);
+      const replace = form.get("replace") === "true";
+      if (replace) {
+        const expected = restoreConfirmation(env, request.url);
+        if (form.get("confirmation") !== expected)
+          throw new DomainError("validation_failed", `Type ${expected} to confirm replacement`);
+        if (env.APP_ENV === "production")
+          requireRecentPasskeyAuthentication(context.reauthenticatedAt);
+      }
+      try {
+        const imported = await restoreArchive(webArchiveApi(env, context), archive, replace);
+        return Response.json({
+          restored: true,
+          documents: archive.documents.length,
+          newRevisions: imported
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("Document conflict"))
+          throw new DomainError("revision_conflict", error.message);
+        throw error;
+      }
+    }
     if (
       url.pathname === "/api/app/passkeys" &&
       request.method === "POST" &&

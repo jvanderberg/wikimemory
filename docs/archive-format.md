@@ -21,9 +21,8 @@ The `content` tree is the current human-readable view. Type and primary `project
 metadata determine directories; remaining metadata and links are YAML frontmatter.
 `history` contains every immutable revision. `documents.json` preserves identities.
 
-Archives exclude passkeys, OAuth tokens, sessions, provider identities, and private
-principal/client IDs. Operational audit events and purge tombstones remain available
-in the legacy JSONL export but are not restored by this content archive. Import rejects
+Archives exclude passkeys, OAuth tokens, sessions, provider identities, private
+principal/client IDs, operational audit events, and purge tombstones. Import rejects
 unsafe paths, excessive expansion, malformed YAML, invalid history, identity/count
 mismatches, and checksum failures.
 
@@ -35,10 +34,16 @@ npx wikimemory backup verify backup.wmem.zip
 npx wikimemory restore --deployment NAME backup.wmem.zip
 ```
 
-Restore is resumable and idempotent when existing identities and revisions match. It
-stops on conflict rather than rewriting history.
+The web application's **Manage → Backup and restore** section provides the same ZIP
+download, validation, preview, and restore flow. For a local development server, replace
+`--deployment NAME` with `--local` on `api login`, `backup create`, and `restore`.
 
-A newly installed instance already contains starter documents. To replace everything
-in a target with the archive, use `restore FILE --replace`. Wikimemory asks you to type
-the Worker name before permanently deleting the target's existing documents. For a
-non-interactive restore, also pass `--confirm WORKER_NAME`.
+Restore is resumable and idempotent when existing identities and revisions match. It
+stops on conflict rather than rewriting history. A newly installed instance containing
+exactly the two untouched generated starter pages is treated as empty; a normal restore
+replaces those pages automatically. Edited starter pages and instances containing any
+additional document are treated as real data.
+
+To replace real content with the archive, use `restore FILE --replace`. Wikimemory asks
+you to type the Worker name before permanently deleting the target's existing documents.
+For a non-interactive restore, also pass `--confirm WORKER_NAME`.

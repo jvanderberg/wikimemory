@@ -3,14 +3,19 @@ import { mkdir } from "node:fs/promises";
 import process from "node:process";
 import { WIKIMEMORY_VERSION } from "../src/version.ts";
 import { deploymentArguments, installArguments } from "./cli-options.ts";
-import { deploymentPaths, requireInstalledDeployment } from "./deployment-record.ts";
+import {
+  deploymentPaths,
+  localDeploymentPaths,
+  requireInstalledDeployment,
+  requireLocalDeployment
+} from "./deployment-record.ts";
 import { packageRoot } from "./package-root.ts";
 import { conciseError } from "./subprocess.ts";
 
 const [command, ...args] = process.argv.slice(2);
 
 function usage(): string {
-  return `Wikimemory ${WIKIMEMORY_VERSION}\nPersonal, passkey-protected memory for Claude, Codex, and other MCP clients.\n\nUsage: wikimemory COMMAND [OPTIONS]\n\nStart a personal Cloudflare-hosted instance:\n  npx wikimemory install\n\nTry it locally without a Cloudflare deployment:\n  npx wikimemory dev\n\nCommands:\n  wikimemory install [--deployment NAME] [installer options]\n  wikimemory recover [--deployment NAME]\n  wikimemory dev [wrangler dev options]\n  wikimemory status [--deployment NAME]\n  wikimemory browse [--deployment NAME]\n  wikimemory upgrade [--deployment NAME] [--yes]\n  wikimemory passkeys [--deployment NAME] list|add|revoke\n  wikimemory connect [--deployment NAME] codex|claude\n  wikimemory api login [--deployment NAME]\n  wikimemory backup [--deployment NAME] create [--output FILE]\n  wikimemory backup inspect|verify FILE\n  wikimemory restore [--deployment NAME] FILE [--replace]\n  wikimemory skills install codex|claude\n  wikimemory uninstall [--deployment NAME] [--apply]\n  wikimemory --version\n\nUse \`wikimemory COMMAND --help\` for command-specific options.`;
+  return `Wikimemory ${WIKIMEMORY_VERSION}\nPersonal, passkey-protected memory for Claude, Codex, and other MCP clients.\n\nUsage: wikimemory COMMAND [OPTIONS]\n\nStart a personal Cloudflare-hosted instance:\n  npx wikimemory install\n\nTry it locally without a Cloudflare deployment:\n  npx wikimemory dev\n\nCommands:\n  wikimemory install [--deployment NAME] [installer options]\n  wikimemory recover [--deployment NAME]\n  wikimemory dev [wrangler dev options]\n  wikimemory status [--deployment NAME]\n  wikimemory browse [--deployment NAME]\n  wikimemory upgrade [--deployment NAME] [--yes]\n  wikimemory passkeys [--deployment NAME] list|add|revoke\n  wikimemory connect [--deployment NAME] codex|claude\n  wikimemory api login [--deployment NAME|--local]\n  wikimemory backup [--deployment NAME|--local] create [--output FILE]\n  wikimemory backup inspect|verify FILE\n  wikimemory restore [--deployment NAME|--local] FILE [--replace]\n  wikimemory skills install codex|claude\n  wikimemory uninstall [--deployment NAME] [--apply]\n  wikimemory --version\n\nUse \`wikimemory COMMAND --help\` for command-specific options.`;
 }
 
 async function main(): Promise<void> {
@@ -36,7 +41,9 @@ async function main(): Promise<void> {
     return;
   }
   const parsed = deploymentArguments(args);
-  const paths = deploymentPaths(parsed.deployment);
+  const paths = parsed.local ? localDeploymentPaths() : deploymentPaths(parsed.deployment);
+  if (parsed.local && !["api", "backup", "restore"].includes(command))
+    throw new Error("--local is supported by api login, backup create, and restore");
   const requiresInstalledDeployment =
     !parsed.remaining.includes("--help") &&
     (command === "recover" ||
@@ -49,7 +56,8 @@ async function main(): Promise<void> {
       (command === "backup" && parsed.remaining[0] === "create") ||
       command === "uninstall" ||
       (command === "upgrade" && !parsed.remaining.includes("--record")));
-  if (requiresInstalledDeployment) {
+  if (requiresInstalledDeployment && parsed.local) await requireLocalDeployment();
+  if (requiresInstalledDeployment && !parsed.local) {
     const requirement =
       command === "recover" || command === "passkeys" || command === "uninstall"
         ? "config"
@@ -94,7 +102,7 @@ async function main(): Promise<void> {
   } else if (command === "backup") {
     if (parsed.remaining.length === 1 && parsed.remaining[0] === "--help") {
       console.log(
-        "Usage: wikimemory backup create [--deployment NAME] [--output FILE]\n       wikimemory backup inspect|verify FILE"
+        "Usage: wikimemory backup create [--deployment NAME|--local] [--output FILE]\n       wikimemory backup inspect|verify FILE"
       );
       return;
     }
@@ -106,28 +114,28 @@ async function main(): Promise<void> {
       await inspectBackup(parsed.remaining[1] ?? "");
     else
       throw new Error(
-        "Usage: wikimemory backup create [--output FILE] | backup inspect|verify FILE"
+        "Usage: wikimemory backup create [--deployment NAME|--local] [--output FILE] | backup inspect|verify FILE"
       );
   } else if (command === "restore") {
     if (parsed.remaining.length === 1 && parsed.remaining[0] === "--help") {
       console.log(
-        "Usage: wikimemory restore [--deployment NAME] FILE [--replace] [--confirm WORKER]"
+        "Usage: wikimemory restore [--deployment NAME|--local] FILE [--replace] [--confirm WORKER]"
       );
       return;
     }
     if (parsed.remaining.length === 0)
       throw new Error(
-        "Usage: wikimemory restore [--deployment NAME] FILE [--replace] [--confirm WORKER]"
+        "Usage: wikimemory restore [--deployment NAME|--local] FILE [--replace] [--confirm WORKER]"
       );
     const { restoreBackup } = await import("./archive.ts");
     await restoreBackup(paths.record, paths.directory, parsed.remaining);
   } else if (command === "api") {
     if (parsed.remaining.length === 1 && parsed.remaining[0] === "--help") {
-      console.log("Usage: wikimemory api login [--deployment NAME]");
+      console.log("Usage: wikimemory api login [--deployment NAME|--local]");
       return;
     }
     if (parsed.remaining.length !== 1 || parsed.remaining[0] !== "login")
-      throw new Error("Usage: wikimemory api login [--deployment NAME]");
+      throw new Error("Usage: wikimemory api login [--deployment NAME|--local]");
     const { loginApi } = await import("./api-auth.ts");
     await loginApi(paths.record, paths.directory);
   } else if (command === "uninstall") {

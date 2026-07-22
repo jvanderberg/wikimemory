@@ -41,7 +41,7 @@
     "release-manifest.json"
   ],
   "scripts": {
-    "dev": "npm run build:web && npm run db:migrate:local && wrangler dev",
+    "dev": "npm run build:web && node --experimental-strip-types scripts/cli.ts dev",
     "build:cli": "tsc -p tsconfig.cli.json",
     "build:web": "vite build",
     "setup": "node --experimental-strip-types scripts/setup.ts",
@@ -79,9 +79,14 @@
     "fflate": "^0.8.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "wrangler": "4.112.0",
     "yaml": "^2.8.3",
     "zod": "4.4.3"
+  },
+  "overrides": {
+    "fast-uri": "3.1.4"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",

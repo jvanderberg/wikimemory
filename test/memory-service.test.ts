@@ -1,7 +1,5 @@
 import { env } from "cloudflare:workers";
 import type { DomainError } from "../src/domain/errors";
-import { ExportService } from "../src/domain/export-service";
-import { isRecord } from "../src/domain/guards";
 import { MemoryService, normalizeSourceUrl } from "../src/domain/memory-service";
 import type {
   ActorContext,
@@ -301,7 +299,8 @@ describe("MemoryService", () => {
       slug: "catalog-page",
       type: "topic",
       title: "Catalog page",
-      body: "See [[not-created]]."
+      body: "See [[not-created]].",
+      metadata: { set: { project: "catalog-project" } }
     });
     await service.ingest(actor, {
       operationId: "catalog-2",
@@ -313,7 +312,11 @@ describe("MemoryService", () => {
 
     const index = await service.index(actor);
     expect(index).toContainEqual(
-      expect.objectContaining({ slug: "catalog-page", revisionNumber: 2 })
+      expect.objectContaining({
+        slug: "catalog-page",
+        revisionNumber: 2,
+        project: "catalog-project"
+      })
     );
     const history = await service.history(actor, "catalog-page");
     expect(history.map(({ revisionNumber }) => revisionNumber)).toEqual([2, 1]);
@@ -425,82 +428,6 @@ describe("MemoryService", () => {
       .bind(actor.workspaceId)
       .first<{ detail_json: string }>();
     expect(audit?.detail_json).not.toContain(createRequest.body);
-  });
-
-  it("exports lossless JSONL with archive-local attribution and readable current Markdown", async () => {
-    const { actor, service } = await fixture("export");
-    const first = await service.ingest(actor, {
-      operationId: "export-1",
-      reason: "first exported state",
-      slug: "exported-page",
-      type: "topic",
-      title: "Exported page",
-      body: "First historical body",
-      summary: "Portable current context"
-    });
-    await service.ingest(actor, {
-      operationId: "export-2",
-      reason: "second exported state",
-      slug: "exported-page",
-      expectedRevisionId: first.revisionId,
-      body: "Current exported body"
-    });
-    await service.ingest(actor, {
-      operationId: "export-purge",
-      reason: "create purge export fixture",
-      slug: "purged-export",
-      type: "note",
-      title: "Purged export",
-      body: "This must not remain in the archive"
-    });
-    const owner: OwnerContext = {
-      ...actor,
-      role: "owner",
-      reauthenticatedAt: new Date().toISOString()
-    };
-    const authorization = await service.authorizePurge(owner, "purged-export", "purged-export");
-    await service.purge(owner, authorization.id, "purged-export");
-    await testEnv.DB.prepare(`INSERT INTO audit_events(id, workspace_id, kind, created_at, principal_id, client_id, request_id, detail_json)
-      VALUES (?, ?, 'future-kind', ?, ?, ?, ?, ?)`)
-      .bind(
-        crypto.randomUUID(),
-        actor.workspaceId,
-        new Date().toISOString(),
-        actor.principalId,
-        actor.clientId,
-        crypto.randomUUID(),
-        JSON.stringify({ unexpected: "do-not-export-this-detail" })
-      )
-      .run();
-
-    const exporter = new ExportService(testEnv.DB);
-    const jsonl = await exporter.jsonl(actor);
-    const records = jsonl
-      .trim()
-      .split("\n")
-      .map((line) => {
-        const parsed: unknown = JSON.parse(line);
-        if (!isRecord(parsed)) throw new Error("Export line is not a JSON object");
-        return parsed;
-      });
-    expect(records[0]).toMatchObject({ record: "manifest", schemaVersion: 1 });
-    expect(records.filter((record) => record["record"] === "revision")).toHaveLength(2);
-    expect(records).toContainEqual(
-      expect.objectContaining({ record: "purge_tombstone", operationId: "export-purge" })
-    );
-    expect(jsonl).toContain("First historical body");
-    expect(jsonl).toContain("Current exported body");
-    expect(jsonl).not.toContain("This must not remain in the archive");
-    expect(jsonl).not.toContain("principal-export");
-    expect(jsonl).not.toContain("export@example.test");
-    expect(jsonl).not.toContain("test-client");
-    expect(jsonl).not.toContain("do-not-export-this-detail");
-    expect(jsonl).toContain('"clientRef":"client-1"');
-
-    const markdown = await exporter.markdown(actor);
-    expect(markdown).toContain("Current exported body");
-    expect(markdown).not.toContain("First historical body");
-    expect(markdown).not.toContain("purged-export");
   });
 
   it("passes non-URL and non-http provenance values through normalization untouched", () => {

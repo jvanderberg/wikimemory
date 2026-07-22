@@ -71,7 +71,8 @@ main {
   width: min(32rem, 100%);
 }
 h1,
-h2 {
+h2,
+h3 {
   line-height: 1.2;
 }
 .lede,
@@ -93,6 +94,57 @@ small {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
   gap: 1rem;
+}
+.browser-section {
+  margin-top: 2.5rem;
+}
+.browser-section > h2 {
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+.project-group {
+  margin: 1rem 0;
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: var(--panel);
+}
+.project-heading {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+.project-heading h3,
+.project-heading p,
+.card h3 {
+  margin-top: 0;
+}
+.project-heading p {
+  margin-bottom: 0;
+  color: var(--muted);
+}
+.folder-icon,
+.document-icon {
+  color: var(--accent);
+}
+.folder-icon svg,
+.document-icon svg {
+  width: 1.7rem;
+  height: 1.7rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.document-type {
+  margin-top: 1.5rem;
+}
+.document-type > h3 {
+  color: var(--muted);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .meta {
   display: flex;
@@ -119,6 +171,10 @@ input {
   color: inherit;
   font: inherit;
 }
+input[type="checkbox"] {
+  width: auto;
+  margin-right: 0.5rem;
+}
 label {
   display: block;
   margin: 1rem 0;
@@ -138,6 +194,88 @@ button,
 }
 button:disabled {
   opacity: 0.5;
+}
+.page-heading,
+.body-heading {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+.body-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.view-selector,
+.text-selector {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: var(--panel);
+}
+.view-selector button,
+.text-selector button {
+  min-width: 2.7rem;
+  padding: 0.45rem 0.7rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.view-selector svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon-button {
+  display: grid;
+  min-width: 2.7rem;
+  padding: 0.45rem;
+  place-items: center;
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--accent);
+}
+.icon-button svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.view-selector button + button,
+.text-selector button + button {
+  border-left: 1px solid var(--line);
+}
+.view-selector button.selected,
+.text-selector button.selected {
+  background: var(--accent);
+  color: #fff;
+}
+.recent-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+  gap: 1rem;
+}
+.recent-icon {
+  display: flex;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: var(--panel);
+}
+.recent-icon h2,
+.recent-icon p {
+  margin-top: 0;
 }
 .danger {
   margin-top: 0.5rem;
@@ -161,6 +299,11 @@ button:disabled {
   border-left: 0.3rem solid var(--accent);
   background: #e7f4ef;
 }
+.restore-preview {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
 .document-body {
   overflow-x: auto;
   margin: 2rem 0;
@@ -172,6 +315,48 @@ button:disabled {
   font: inherit;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.markdown-body {
+  overflow-wrap: anywhere;
+  margin: 1rem 0 2rem;
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: var(--panel);
+}
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+.markdown-body pre {
+  overflow-x: auto;
+  padding: 1rem;
+  border-radius: 0.55rem;
+  background: var(--bg);
+}
+.markdown-body code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.markdown-body :not(pre) > code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  background: var(--bg);
+}
+.markdown-body table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.markdown-body th,
+.markdown-body td {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.markdown-body img {
+  max-width: 100%;
 }
 .metadata {
   display: grid;
@@ -203,5 +388,18 @@ button:disabled {
   .meta span,
   .notice {
     background: #183a2f;
+  }
+}
+@media (max-width: 36rem) {
+  main {
+    width: min(100% - 1.25rem, 72rem);
+    padding-top: 1.5rem;
+  }
+  .page-heading,
+  .body-heading {
+    align-items: flex-start;
+  }
+  .project-group {
+    padding: 1rem;
   }
 }

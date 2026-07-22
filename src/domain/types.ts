@@ -185,6 +185,7 @@ export interface DocumentIndexEntry {
   summary: string | null;
   updatedAt: string;
   status: string | null;
+  project: string | null;
 }
 
 export interface RevisionHeader {

@@ -135,13 +135,10 @@ operation results with content-free tombstones and never deletes audit events or
 identity/workspace rows. The purge authorization and sanitized audit event are part
 of the transaction; the authorization is consumed last.
 
-## Export ordering
+## Portable archive
 
-Lossless JSONL begins with a manifest and emits sanitized principal projections,
-workspaces, memberships, document identities, revisions in document/revision-number
-order, metadata, links, and sanitized audit events. Exported actor and client IDs are
-stable archive-local aliases rather than authentication identifiers. Provider
-authentication records, browser sessions, token material, ordinary completed
-operations used solely for replay, and purge authorizations are excluded.
-Content-free purge operation tombstones are exported so a future reviewed restore
-tool can preserve the non-resurrection invariant.
+The Wikimemory ZIP preserves document identities, revisions in document/revision-number
+order, metadata, and links. Its current-content tree and revision history are readable
+Markdown with validated frontmatter; a versioned manifest records file checksums.
+Authentication records, browser sessions, token material, audit events, operations,
+purge authorizations, and purge tombstones are excluded.

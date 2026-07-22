@@ -2,6 +2,7 @@ import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { OAuthError } from "@cloudflare/workers-oauth-provider";
 import { isMemoryScope } from "../domain/guards";
 import { MemoryService } from "../domain/memory-service";
+import { STARTER_PAGES } from "../domain/starter-content";
 import type { ActorContext, MemoryScope, OwnerContext } from "../domain/types";
 import type { Env } from "../env";
 import { bindWikimemoryAuthorizationResource } from "./resource";
@@ -33,24 +34,20 @@ export async function ensureLocalOwner(env: Env): Promise<void> {
     requestId: crypto.randomUUID()
   };
   const service = new MemoryService(env.DB);
-  await service.ingest(actor, {
-    operationId: "seed-home-v1",
-    reason: "seed local orientation",
-    slug: "home",
-    type: "system",
-    title: "Wikimemory home",
-    summary: "Standard orientation page.",
-    body: "# Wikimemory\n\nThe database is authoritative. See [[now]] for current focus."
-  });
-  await service.ingest(actor, {
-    operationId: "seed-now-v1",
-    reason: "seed local current focus",
-    slug: "now",
-    type: "system",
-    title: "Now",
-    summary: "Current focus and active threads.",
-    body: "# Now\n\n_(No active work has been recorded yet.)_"
-  });
+  for (const seed of [
+    { ...STARTER_PAGES.home, operationId: "seed-home-v1", reason: "seed local orientation" },
+    { ...STARTER_PAGES.now, operationId: "seed-now-v1", reason: "seed local current focus" }
+  ]) {
+    const [document, operation] = await Promise.all([
+      env.DB.prepare("SELECT 1 present FROM documents WHERE workspace_id = ? AND slug = ?")
+        .bind(WORKSPACE_ID, seed.slug)
+        .first<{ present: number }>(),
+      env.DB.prepare("SELECT status FROM operations WHERE workspace_id = ? AND operation_id = ?")
+        .bind(WORKSPACE_ID, seed.operationId)
+        .first<{ status: string }>()
+    ]);
+    if (document === null && operation === null) await service.ingest(actor, seed);
+  }
 }
 
 export function localOwnerActor(clientId = "wikimemory-web"): ActorContext {
@@ -118,6 +115,7 @@ export async function approveLocalAuthorization(request: Request, env: Env): Pro
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
     request: auth,
     userId: PRINCIPAL_ID,
+    revokeExistingGrants: false,
     metadata: { environment: "local", clientName: client?.clientName ?? auth.clientId },
     scope: scopes,
     props: {

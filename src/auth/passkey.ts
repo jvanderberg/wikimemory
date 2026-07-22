@@ -19,6 +19,7 @@ import { sha256 } from "../domain/crypto";
 import { DomainError } from "../domain/errors";
 import { isMemoryScope } from "../domain/guards";
 import { MemoryService } from "../domain/memory-service";
+import { STARTER_PAGES } from "../domain/starter-content";
 import type { ActorContext, MemoryScope, OwnerContext } from "../domain/types";
 import type { Env } from "../env";
 import { PASSKEY_OWNER_ID, registrationToken } from "./passkey-management";
@@ -195,22 +196,14 @@ async function ensureOwner(env: DatabaseEnv): Promise<void> {
   const service = new MemoryService(env.DB);
   const owner = actor("wikimemory-passkey-seed");
   await service.ingest(owner, {
+    ...STARTER_PAGES.home,
     operationId: "seed-home-v1",
-    reason: "seed orientation",
-    slug: "home",
-    type: "system",
-    title: "Wikimemory home",
-    summary: "Standard orientation page.",
-    body: "# Wikimemory\n\nThe database is authoritative. See [[now]] for current focus."
+    reason: "seed orientation"
   });
   await service.ingest(owner, {
+    ...STARTER_PAGES.now,
     operationId: "seed-now-v1",
-    reason: "seed current focus",
-    slug: "now",
-    type: "system",
-    title: "Now",
-    summary: "Current focus and active threads.",
-    body: "# Now\n\n_(No active work has been recorded yet.)_"
+    reason: "seed current focus"
   });
 }
 
@@ -702,6 +695,7 @@ export async function verifyPasskeyAuthorization(
     const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
       request: auth,
       userId: PRINCIPAL_ID,
+      revokeExistingGrants: false,
       metadata: { identity: "passkey" },
       scope: granted,
       props: {

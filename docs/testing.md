@@ -18,7 +18,7 @@ Current scripts:
 npm run dev             # migrate/seed local D1, start Worker and web app
 npm test                # Worker, React, and lifecycle CLI tests
 npm run test:coverage   # instrument source locally and enforce coverage thresholds
-npm run smoke:local     # OAuth/PKCE, MCP, export, restore, purge, and revoke smoke
+npm run smoke:local     # OAuth/PKCE, MCP, backup, restore, purge, and revoke smoke
 npm run test:passkey    # real WebAuthn registration/login using Chrome virtual authenticator
 npm run format          # apply Biome formatting and import organization
 npm run format:check    # fail on formatting or import-order drift
@@ -29,6 +29,18 @@ npm run check           # typecheck, lint, tests, and coverage gates
 npm run test:package    # pack and exercise the CLI from a temporary empty directory
 npm run verify:release  # verify version and migration-manifest consistency
 ```
+
+For a manual archive round trip, keep `npm run dev` running and use either **Manage →
+Backup and restore** in `http://127.0.0.1:8787/app`, or:
+
+```sh
+node --experimental-strip-types scripts/cli.ts api login --local
+node --experimental-strip-types scripts/cli.ts backup create --local --output test.wmem.zip
+node --experimental-strip-types scripts/cli.ts backup verify test.wmem.zip
+node --experimental-strip-types scripts/cli.ts restore --local test.wmem.zip
+```
+
+The local deployment record and OAuth credentials stay under `.wikimemory/dev/`.
 
 There is no automated development reset command. To reset contributor state, stop the
 development server and remove only the verified repository-local `.wrangler/state`
@@ -57,7 +69,7 @@ safe error formatting.
 
 Cloudflare's Vitest Workers pool applies real migrations to isolated local D1. Tests
 cover constraints, triggers, FTS5, atomic snapshot writes, cross-workspace isolation,
-conflict races, idempotency, restore, guarded purge, and export ordering.
+conflict races, idempotency, restore, guarded purge, and archive ordering.
 
 `npm run test:coverage` uses test-time Istanbul instrumentation and writes an ignored
 HTML report to `coverage/`. Vitest runs two projects in the same coverage process:

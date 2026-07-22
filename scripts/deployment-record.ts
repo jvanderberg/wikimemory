@@ -5,6 +5,18 @@ import { z } from "zod";
 
 const DEPLOYMENT_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/u;
 
+function deploymentOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" ||
+      (url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const DEPLOYMENT_RECORD_SCHEMA = z
   .object({
     formatVersion: z.literal(1),
@@ -14,7 +26,7 @@ export const DEPLOYMENT_RECORD_SCHEMA = z
     databaseId: z.string().min(1),
     kvName: z.string().min(1),
     kvId: z.string().min(1),
-    origin: z.url().refine((value) => value.startsWith("https://")),
+    origin: z.url().refine(deploymentOrigin, "origin must use HTTPS or loopback HTTP"),
     installedVersion: z.string().regex(/^\d+\.\d+\.\d+$/u)
   })
   .strict();
@@ -62,6 +74,22 @@ export function deploymentPaths(deployment = "wikimemory"): DeploymentPaths {
   };
 }
 
+export function localDeploymentPaths(): DeploymentPaths {
+  const directory = resolveLocalState();
+  return {
+    directory,
+    record: join(directory, "deployment.json"),
+    config: join(directory, "wrangler.jsonc"),
+    installProgress: join(directory, "install-progress.json"),
+    uninstallProgress: join(directory, "uninstall-progress.json"),
+    passkeyClient: join(directory, "passkey-client.json")
+  };
+}
+
+function resolveLocalState(): string {
+  return join(process.cwd(), ".wikimemory", "dev");
+}
+
 export async function requireInstalledDeployment(
   deployment: string,
   requirement: "record" | "config" = "record"
@@ -101,6 +129,15 @@ export async function requireInstalledDeployment(
   throw new Error(
     `No deployment named “${deployment}”. Installed: ${installed.join(", ")}. Use --deployment NAME.`
   );
+}
+
+export async function requireLocalDeployment(): Promise<void> {
+  try {
+    await access(localDeploymentPaths().record);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    throw new Error("No local development instance is configured. Start `wikimemory dev` first.");
+  }
 }
 
 export function deploymentRecordFromConfig(

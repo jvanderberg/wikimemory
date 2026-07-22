@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { WikimemoryArchive } from "../src/archive/format.ts";
+import { type ArchiveApi, previewArchiveRestore, restoreArchive } from "../src/archive/restore.ts";
+import { STARTER_PAGES, type StarterSlug } from "../src/domain/starter-content.ts";
 import type {
   AdminAppendRevisionRequest,
   AdminCreateDocumentRequest,
   DocumentIdentity,
   DocumentSnapshot
 } from "../src/domain/types.ts";
-import { type ArchiveApi, restoreArchive } from "./archive.ts";
 
 const identity: DocumentIdentity = {
   documentId: "source-document",
@@ -101,6 +102,49 @@ class FakeApi implements ArchiveApi {
   }
 }
 
+function addPristineStarters(api: FakeApi): void {
+  for (const slug of ["home", "now"] satisfies StarterSlug[]) {
+    const page = STARTER_PAGES[slug];
+    const document: DocumentIdentity = {
+      documentId: `seed-${slug}`,
+      workspaceId: "target-workspace",
+      slug,
+      type: "system",
+      createdAt: "2026-01-01T00:00:00Z"
+    };
+    api.documents.set(slug, document);
+    api.revisions.set(slug, [
+      {
+        ...document,
+        revisionId: `seed-${slug}-revision`,
+        revisionNumber: 1,
+        parentRevisionId: null,
+        title: page.title,
+        body: page.body,
+        summary: page.summary,
+        createdAt: "2026-01-01T00:00:00Z",
+        principalId: "target-owner",
+        clientId: "target-client",
+        agentLabel: "system",
+        reason: "seed",
+        restoredFromRevisionId: null,
+        metadata: [],
+        links:
+          slug === "home"
+            ? [
+                {
+                  kind: "related",
+                  targetSlug: "now",
+                  targetDocumentId: "seed-now",
+                  origin: "body"
+                }
+              ]
+            : []
+      }
+    ]);
+  }
+}
+
 await describe("archive restore", async () => {
   await it("stops on identity conflicts without deleting target data", async () => {
     const api = new FakeApi();
@@ -125,5 +169,23 @@ await describe("archive restore", async () => {
       "source-revision-1"
     );
     assert.equal(await restoreArchive(api, archive, false), 0);
+  });
+
+  await it("recognizes untouched starter pages as an empty target", async () => {
+    const api = new FakeApi();
+    addPristineStarters(api);
+
+    assert.deepEqual(await previewArchiveRestore(api, archive), {
+      documents: 1,
+      revisions: 2,
+      newDocuments: 1,
+      matchingDocuments: 0,
+      newRevisions: 2,
+      conflicts: [],
+      replacesStarterContent: true
+    });
+    assert.equal(await restoreArchive(api, archive, false), 2);
+    assert.deepEqual(api.deleted, ["home", "now"]);
+    assert.deepEqual([...api.documents.keys()], ["source-note"]);
   });
 });

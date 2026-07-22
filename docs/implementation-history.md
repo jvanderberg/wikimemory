@@ -51,7 +51,7 @@ OAuth, and agent skills work together before web/deployment work expands.
 
 - WebAuthn registration, authentication, bootstrap rotation, and recovery.
 - Browse, Search, Recent, document/history, and Manage pages.
-- JSONL/Markdown export, restore, session
+- ZIP backup/restore, session
   administration, and purge flows.
 - Responsive and accessible browser tests.
 
@@ -66,7 +66,7 @@ deployment with passkey identity.
   Code, Claude custom connectors, and mobile use.
 
 Exit: a fresh user can deploy/connect by following the installation skill and can
-export all cloud memory without provider-specific database access.
+back up all cloud memory without provider-specific database access.
 
 ## Phase 7 — acceptance
 

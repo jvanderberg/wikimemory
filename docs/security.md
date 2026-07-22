@@ -103,7 +103,8 @@ accidents, not a general secret classifier.
 
 - No raw SQL tool, arbitrary fetch tool, or attachment upload exists.
 - Bound all inputs, result counts, and MCP output sizes.
-- Render stored bodies as text in React; never inject stored HTML into the DOM.
+- Render stored bodies through React's Markdown element tree with raw HTML disabled;
+  never inject stored HTML into the DOM. Raw mode uses a text-only code block.
 - Rely on hard request, query, export, and response bounds. Dedicated application and
   provider-level rate-limit infrastructure is deferred operational work.
 
@@ -124,7 +125,10 @@ authorization headers.
 
 The versioned CRUD API supports owner-authorized archive and custom imports. All writes
 require `memory:admin`; ordinary MCP `memory:write` authority cannot use it. ZIP import
-accepts validated Wikimemory entities and never executes SQL.
+accepts validated Wikimemory entities and never executes SQL. The owner web application
+uses the same archive parser and restore service through its authenticated browser
+session. It previews conflicts before applying; replacement additionally requires the
+exact instance confirmation and authentication no older than five minutes.
 
 ## Purge mechanism
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readArchive } from "../src/archive/format.ts";
 
 const base = process.env["WIKIMEMORY_URL"] ?? "http://127.0.0.1:8787";
 const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
@@ -424,22 +425,20 @@ const purgeResponse = await fetch(`${base}/api/app/docs/${smokeSlug}/purge-apply
 });
 assert(purgeResponse.ok, `purge apply failed (${purgeResponse.status})`);
 
-const jsonlExport = await fetch(`${base}/api/app/export.jsonl`, {
+const backupResponse = await fetch(`${base}/api/app/backup`, {
   headers: { cookie: webCookie }
 });
-const archive = await jsonlExport.text();
-assert(jsonlExport.ok && archive.includes('"record":"manifest"'), "JSONL export failed");
+assert(backupResponse.ok, "Wikimemory backup failed");
+const backup = await readArchive(new Uint8Array(await backupResponse.arrayBuffer()));
 assert(
-  !archive.includes(firstBody) && !archive.includes(secondBody),
-  "purged content leaked into export"
+  !backup.documents.some((document) => document.slug === smokeSlug),
+  "purged document leaked into backup"
 );
-assert(archive.includes('"record":"purge_tombstone"'), "purge tombstone is missing from export");
-const markdownExport = await fetch(`${base}/api/app/export.md`, {
-  headers: { cookie: webCookie }
-});
 assert(
-  markdownExport.ok && (await markdownExport.text()).includes("# Wikimemory export"),
-  "Markdown export failed"
+  !backup.revisions.some(
+    (revision) => revision.body.includes(firstBody) || revision.body.includes(secondBody)
+  ),
+  "purged content leaked into backup"
 );
 
 const manage = await json(

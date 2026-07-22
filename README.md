@@ -6,8 +6,9 @@ reusable context in an auditable revision store that the owner can browse and
 search from the web.
 
 It includes remote HTTP MCP with OAuth/PKCE, passkey identity, append-only revision
-storage, full-text search, a React browse/search/history UI, multi-passkey controls,
-sanitized exports, and version-matched client skills. The server does not call an
+storage, full-text search, a project-grouped React browse/search/history UI with
+rendered Markdown, multi-passkey controls,
+portable ZIP backup and restore, and version-matched client skills. The server does not call an
 LLM; Claude or Codex performs synthesis while Wikimemory provides deterministic,
 auditable storage and retrieval.
 
@@ -101,7 +102,11 @@ stored memory.
 
 ## Back up and restore
 
-Authorize the administrative CLI once, then create a portable archive:
+Open **Manage → Backup and restore** to download a complete backup or upload one for
+validation, conflict preview, and restore. Replacement requires explicit confirmation
+and recent passkey authentication.
+
+For automation, authorize the administrative CLI once:
 
 ```sh
 npx wikimemory api login
@@ -110,12 +115,14 @@ npx wikimemory backup verify wikimemory-backup.wmem.zip
 npx wikimemory restore wikimemory-backup.wmem.zip
 ```
 
+Against `wikimemory dev`, use the same commands with `--local`.
+
 The ZIP contains human-readable Markdown, complete revision history, metadata, links,
 a versioned manifest, and SHA-256 checksums. It excludes passkeys, OAuth credentials,
 and sessions. Restore preserves document and revision identities and stops on conflicts.
-When restoring into a new instance that still has starter documents, use
-`wikimemory restore FILE --replace`; Wikimemory requires exact Worker-name confirmation
-before deleting them.
+On a new instance, Wikimemory recognizes and replaces its two untouched starter pages
+automatically. Replacing any real or edited content requires `--replace` and exact
+Worker-name confirmation.
 
 Source-specific importers are intentionally not built in. An LLM or developer can use
 the documented admin CRUD API and exported `wikimemory/client` TypeScript client to
@@ -148,7 +155,6 @@ Do not store credentials or material you are unwilling to entrust to the host.
 - [MCP contract](docs/mcp-contract.md)
 - [Local development and testing](docs/testing.md)
 - [Installation and client connection](docs/installation.md)
-- [Export formats and privacy](docs/export-format.md)
 - [Portable ZIP archive](docs/archive-format.md)
 - [CRUD API and custom importers](docs/crud-api.md)
 - [OpenAPI contract](docs/openapi.yaml)

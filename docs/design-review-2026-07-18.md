@@ -1,5 +1,8 @@
 # Design review — 2026-07-18
 
+> Historical review. Its JSONL import/export proposals and tombstone-export decisions
+> were later superseded by the single versioned, checksummed Wikimemory ZIP backup.
+
 An independent internal review was performed after the first complete design pass and
 before implementation. This file records the root agent's review of that review and
 the resulting decisions.

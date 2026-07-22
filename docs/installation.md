@@ -307,6 +307,7 @@ npx wikimemory skills install claude
 Restart the client after adding skills. If skills are unavailable, paste the
 [manual agent contract](manual-agent-instructions.md) into a session.
 
-Use `wikimemory backup` and `wikimemory restore` for portable ZIP archives. Convert
-other source formats locally with the documented CRUD API; never upload a SQLite
-database to the Worker.
+Use **Manage → Backup and restore** for interactive portable ZIP downloads and uploads.
+Use `wikimemory backup` and `wikimemory restore` for automation; add `--local` when
+testing against `wikimemory dev`. Convert other source formats locally with the
+documented CRUD API; never upload a SQLite database to the Worker.

@@ -40,7 +40,7 @@ domain write SQL and do not assemble revisions themselves.
 ### Domain services
 
 Domain services implement create/update, metadata patching, links, secret scanning,
-recall, lint, restore, purge, and export. They accept an `ActorContext`
+recall, lint, archive backup/restore, and purge. They accept an `ActorContext`
 created by the auth layer and return typed results/errors independent of HTTP or MCP.
 
 ### D1 repository
@@ -62,7 +62,7 @@ local path.
 
 The web application is a React 19/Vite single-page application. React components and
 hooks own setup, authentication, local consent, browse, search, document history, and
-passkey/session/client management rendering. Runtime responses are validated before
+backup/restore and passkey/session/client management rendering. Runtime responses are validated before
 entering component state. The Worker serves the compiled assets and JSON only; the
 asset binding falls back to the React shell for browser routes.
 

@@ -454,7 +454,10 @@ export class MemoryService {
                 r.title, r.summary, r.created_at,
                 (SELECT rm.value FROM revision_metadata rm
                  WHERE rm.workspace_id = d.workspace_id AND rm.revision_id = r.id AND rm.key = 'status'
-                 LIMIT 1) status
+                 LIMIT 1) status,
+                (SELECT rm.value FROM revision_metadata rm
+                 WHERE rm.workspace_id = d.workspace_id AND rm.revision_id = r.id AND rm.key = 'project'
+                 LIMIT 1) project
          FROM documents d JOIN current_revisions r ON r.doc_id = d.id
          WHERE ${clauses.join(" AND ")}
          ORDER BY d.slug LIMIT ?`
@@ -470,6 +473,7 @@ export class MemoryService {
         summary: string | null;
         created_at: string;
         status: string | null;
+        project: string | null;
       }>();
     return rows.results.map((row) => ({
       documentId: row.document_id,
@@ -480,7 +484,8 @@ export class MemoryService {
       title: row.title,
       summary: row.summary,
       updatedAt: row.created_at,
-      status: row.status
+      status: row.status,
+      project: row.project
     }));
   }
 

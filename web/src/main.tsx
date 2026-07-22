@@ -13,6 +13,8 @@ import {
   useState
 } from "react";
 import { createRoot } from "react-dom/client";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { z } from "zod";
 import "./styles.css";
 
@@ -21,7 +23,8 @@ const indexEntry = z.object({
   type: z.string(),
   title: z.string(),
   summary: z.string().nullable(),
-  status: z.string().nullable().optional()
+  status: z.string().nullable().optional(),
+  project: z.string().nullable().optional()
 });
 const sessionSchema = z.object({
   authenticated: z.boolean(),
@@ -34,8 +37,11 @@ const recentSchema = z.object({
   revisions: z.array(
     z.object({
       slug: z.string(),
+      type: z.string(),
       revision_id: z.string(),
       revision_number: z.number(),
+      title: z.string(),
+      summary: z.string().nullable(),
       created_at: z.string(),
       reason: z.string()
     })
@@ -66,7 +72,29 @@ const manageSchema = z.object({
       createdAt: z.string(),
       current: z.boolean()
     })
-  )
+  ),
+  restoreConfirmation: z.string()
+});
+const restorePreviewSchema = z.object({
+  manifest: z.object({
+    formatVersion: z.number(),
+    createdAt: z.string(),
+    counts: z.object({ documents: z.number(), revisions: z.number() })
+  }),
+  preview: z.object({
+    documents: z.number(),
+    revisions: z.number(),
+    newDocuments: z.number(),
+    matchingDocuments: z.number(),
+    newRevisions: z.number(),
+    replacesStarterContent: z.boolean(),
+    conflicts: z.array(z.object({ slug: z.string(), message: z.string() }))
+  })
+});
+const restoreResultSchema = z.object({
+  restored: z.literal(true),
+  documents: z.number(),
+  newRevisions: z.number()
 });
 const revokePasskeySchema = z.object({
   revoked: z.string(),
@@ -193,6 +221,51 @@ function Shell({ children }: { children: React.ReactNode }): React.JSX.Element {
   );
 }
 
+function ListIcon(): React.JSX.Element {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M4 6h2M4 12h2M4 18h2M9 6h11M9 12h11M9 18h11" />
+    </svg>
+  );
+}
+
+function GridIcon(): React.JSX.Element {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <rect x="4" y="4" width="6" height="6" rx="1" />
+      <rect x="14" y="4" width="6" height="6" rx="1" />
+      <rect x="4" y="14" width="6" height="6" rx="1" />
+      <rect x="14" y="14" width="6" height="6" rx="1" />
+    </svg>
+  );
+}
+
+function FolderIcon(): React.JSX.Element {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M3 7.5h7l2-2h3.5A2.5 2.5 0 0 1 18 8v.5h2a2 2 0 0 1 1.9 2.6l-2 6A2.8 2.8 0 0 1 17.2 19H5.5A2.5 2.5 0 0 1 3 16.5v-9Z" />
+    </svg>
+  );
+}
+
+function DocumentIcon(): React.JSX.Element {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M6 3.5h8l4 4V20H6V3.5Z" />
+      <path d="M14 3.5v4h4M9 12h6M9 16h6" />
+    </svg>
+  );
+}
+
+function CopyIcon(): React.JSX.Element {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <rect x="8" y="8" width="11" height="12" rx="2" />
+      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2" />
+    </svg>
+  );
+}
+
 function Cards({ items }: { items: z.infer<typeof indexEntry>[] }): React.JSX.Element {
   if (items.length === 0) return <p className="muted">No documents found.</p>;
   return (
@@ -203,14 +276,52 @@ function Cards({ items }: { items: z.infer<typeof indexEntry>[] }): React.JSX.El
             <span>{item.type}</span>
             {item.status ? <span>{item.status}</span> : null}
           </div>
-          <h2>
+          <h3>
             <a href={`/app/docs/${encodeURIComponent(item.slug)}`}>{item.title}</a>
-          </h2>
+          </h3>
           <small>{item.slug}</small>
           <p>{item.summary ?? "No summary"}</p>
         </article>
       ))}
     </div>
+  );
+}
+
+async function loadDocumentIndex(): Promise<z.infer<typeof indexSchema>> {
+  const items: z.infer<typeof indexEntry>[] = [];
+  let after = "";
+  for (;;) {
+    const path =
+      after === "" ? "/api/app/documents" : `/api/app/documents?after=${encodeURIComponent(after)}`;
+    const page = indexSchema.parse(await api(path));
+    items.push(...page.items);
+    if (page.items.length < 100) return { items };
+    const next = page.items.at(-1)?.slug;
+    if (next === undefined || next === after)
+      throw new Error("Document index pagination did not advance");
+    after = next;
+  }
+}
+
+const documentTypeOrder = ["note", "topic", "source"] as const;
+
+function typeLabel(type: string): string {
+  return type === "source" ? "Sources" : `${type.charAt(0).toUpperCase()}${type.slice(1)}s`;
+}
+
+function TypeGroups({ items }: { items: z.infer<typeof indexEntry>[] }): React.JSX.Element {
+  return (
+    <>
+      {documentTypeOrder.map((type) => {
+        const matching = items.filter((item) => item.type === type);
+        return matching.length === 0 ? null : (
+          <section className="document-type" key={type}>
+            <h3>{typeLabel(type)}</h3>
+            <Cards items={matching} />
+          </section>
+        );
+      })}
+    </>
   );
 }
 
@@ -392,18 +503,79 @@ function Registration({ recovery }: { recovery: boolean }): React.JSX.Element {
 }
 
 function Browse(): React.JSX.Element {
-  const data = useLoad(async () => indexSchema.parse(await api("/api/app/documents")));
+  const data = useLoad(loadDocumentIndex);
+  if (data.error) return <p>{data.error}</p>;
+  if (data.value === null) return <p>Loading…</p>;
+  const system = data.value.items.filter((item) => item.type === "system");
+  const projects = new Map<string, z.infer<typeof indexEntry>[]>();
+  const unfiled: z.infer<typeof indexEntry>[] = [];
+  for (const item of data.value.items) {
+    if (item.type === "system") continue;
+    const project =
+      item.type === "project"
+        ? item.slug
+        : item.project !== null &&
+            item.project !== undefined &&
+            /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(item.project)
+          ? item.project
+          : null;
+    if (project === null) unfiled.push(item);
+    else projects.set(project, [...(projects.get(project) ?? []), item]);
+  }
   return (
     <>
       <h1>Browse memory</h1>
       <p className="lede">The current pages in your durable store.</p>
-      {data.error ? (
-        <p>{data.error}</p>
-      ) : data.value === null ? (
-        <p>Loading…</p>
-      ) : (
-        <Cards items={data.value.items} />
+      {system.length === 0 ? null : (
+        <section className="browser-section">
+          <h2>System</h2>
+          <Cards items={system} />
+        </section>
       )}
+      {projects.size === 0 ? null : (
+        <section className="browser-section">
+          <h2>Projects</h2>
+          {[...projects.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([slug, items]) => {
+              const project = items.find((item) => item.type === "project");
+              return (
+                <section className="project-group" key={slug}>
+                  <div className="project-heading">
+                    <span className="folder-icon" aria-hidden="true">
+                      <FolderIcon />
+                    </span>
+                    <div>
+                      <h3>
+                        {project === undefined ? (
+                          slug
+                        ) : (
+                          <a href={`/app/docs/${encodeURIComponent(project.slug)}`}>
+                            {project.title}
+                          </a>
+                        )}
+                      </h3>
+                      {project?.status ? (
+                        <div className="meta project-meta">
+                          <span>{project.status}</span>
+                        </div>
+                      ) : null}
+                      <p>{project?.summary ?? slug}</p>
+                    </div>
+                  </div>
+                  <TypeGroups items={items.filter((item) => item.type !== "project")} />
+                </section>
+              );
+            })}
+        </section>
+      )}
+      {unfiled.length === 0 ? null : (
+        <section className="browser-section">
+          <h2>Unfiled</h2>
+          <TypeGroups items={unfiled} />
+        </section>
+      )}
+      {data.value.items.length === 0 ? <p className="muted">No documents found.</p> : null}
     </>
   );
 }
@@ -445,23 +617,73 @@ function Search(): React.JSX.Element {
 
 function Recent(): React.JSX.Element {
   const data = useLoad(async () => recentSchema.parse(await api("/api/app/recent")));
+  const [view, setView] = useState<"list" | "icons">("list");
   return (
     <>
-      <h1>Recent revisions</h1>
-      <ol className="list">
-        {data.value?.revisions.map((revision) => (
-          <li key={revision.revision_id}>
-            <a
-              href={`/app/docs/${encodeURIComponent(revision.slug)}?revision=${encodeURIComponent(revision.revision_id)}`}
-            >
-              {revision.slug} revision {revision.revision_number}
-            </a>
-            <small>
-              {revision.created_at} · {revision.reason}
-            </small>
-          </li>
-        ))}
-      </ol>
+      <div className="page-heading">
+        <h1>Recent revisions</h1>
+        <div className="view-selector" aria-label="Recent revision view">
+          <button
+            aria-label="List view"
+            aria-pressed={view === "list"}
+            className={view === "list" ? "selected" : undefined}
+            onClick={() => {
+              setView("list");
+            }}
+          >
+            <ListIcon />
+          </button>
+          <button
+            aria-label="Icon view"
+            aria-pressed={view === "icons"}
+            className={view === "icons" ? "selected" : undefined}
+            onClick={() => {
+              setView("icons");
+            }}
+          >
+            <GridIcon />
+          </button>
+        </div>
+      </div>
+      {view === "list" ? (
+        <ol className="list recent-list">
+          {data.value?.revisions.map((revision) => (
+            <li key={revision.revision_id}>
+              <a
+                href={`/app/docs/${encodeURIComponent(revision.slug)}?revision=${encodeURIComponent(revision.revision_id)}`}
+              >
+                {revision.slug} revision {revision.revision_number}
+              </a>
+              <small>
+                {revision.created_at} · {revision.reason}
+              </small>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <div className="recent-icons">
+          {data.value?.revisions.map((revision) => (
+            <article className="recent-icon" key={revision.revision_id}>
+              <span className="document-icon" aria-hidden="true">
+                {revision.type === "project" ? <FolderIcon /> : <DocumentIcon />}
+              </span>
+              <div>
+                <h2>
+                  <a
+                    href={`/app/docs/${encodeURIComponent(revision.slug)}?revision=${encodeURIComponent(revision.revision_id)}`}
+                  >
+                    {revision.title}
+                  </a>
+                </h2>
+                <small>
+                  {revision.slug} · revision {revision.revision_number}
+                </small>
+                <p>{revision.summary ?? revision.reason}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </>
   );
 }
@@ -471,6 +693,7 @@ function DocumentPage({ slug }: { slug: string }): React.JSX.Element {
   const path = `/api/app/docs/${encodeURIComponent(slug)}${revisionId === null ? "" : `?revision=${encodeURIComponent(revisionId)}`}`;
   const data = useLoad(async () => documentSchema.parse(await api(path)), path);
   const [notice, setNotice] = useState("");
+  const [bodyView, setBodyView] = useState<"rendered" | "raw">("rendered");
   if (data.error !== null)
     return (
       <>
@@ -493,6 +716,14 @@ function DocumentPage({ slug }: { slug: string }): React.JSX.Element {
     setNotice("Restored as a new revision.");
     location.assign(`/app/docs/${encodeURIComponent(slug)}`);
   }
+  async function copyMarkdown(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(document.body);
+      setNotice("Markdown copied.");
+    } catch {
+      setNotice("Could not copy Markdown. Select Raw and copy it manually.");
+    }
+  }
   return (
     <article>
       <div className="meta">
@@ -513,7 +744,48 @@ function DocumentPage({ slug }: { slug: string }): React.JSX.Element {
           ))}
         </dl>
       )}
-      <pre className="document-body">{document.body}</pre>
+      <div className="body-heading">
+        <h2>Document</h2>
+        <div className="body-actions">
+          <div className="text-selector" aria-label="Document body view">
+            <button
+              aria-pressed={bodyView === "rendered"}
+              className={bodyView === "rendered" ? "selected" : undefined}
+              onClick={() => {
+                setBodyView("rendered");
+              }}
+            >
+              Rendered
+            </button>
+            <button
+              aria-pressed={bodyView === "raw"}
+              className={bodyView === "raw" ? "selected" : undefined}
+              onClick={() => {
+                setBodyView("raw");
+              }}
+            >
+              Raw
+            </button>
+          </div>
+          <button
+            className="icon-button"
+            aria-label="Copy Markdown"
+            title="Copy Markdown"
+            onClick={() => void copyMarkdown()}
+          >
+            <CopyIcon />
+          </button>
+        </div>
+      </div>
+      {bodyView === "rendered" ? (
+        <div className="markdown-body">
+          <Markdown remarkPlugins={[remarkGfm]} skipHtml>
+            {document.body}
+          </Markdown>
+        </div>
+      ) : (
+        <pre className="document-body">{document.body}</pre>
+      )}
       <section className="panel">
         <h2>History</h2>
         <ol className="list">
@@ -539,10 +811,57 @@ function Manage({ passkeysEnabled }: { passkeysEnabled: boolean }): React.JSX.El
   const data = useLoad(async () => manageSchema.parse(await api("/api/app/manage")));
   const [label, setLabel] = useState("");
   const [notice, setNotice] = useState("");
+  const [backup, setBackup] = useState<File | null>(null);
+  const [preview, setPreview] = useState<z.infer<typeof restorePreviewSchema> | null>(null);
+  const [replace, setReplace] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+  const [archiveBusy, setArchiveBusy] = useState(false);
   async function mutate(method: "POST" | "DELETE", path: string, body: object): Promise<unknown> {
     const result = await api(path, { method, body: JSON.stringify(body) });
     data.reload();
     return result;
+  }
+  async function archiveRequest(path: string, includeRestoreOptions: boolean): Promise<unknown> {
+    if (backup === null) throw new Error("Choose a backup file");
+    const form = new FormData();
+    form.set("backup", backup);
+    if (includeRestoreOptions) {
+      form.set("replace", String(replace));
+      if (replace) form.set("confirmation", confirmation);
+    }
+    return await json(await fetch(path, { method: "POST", body: form }));
+  }
+  async function inspectBackup(): Promise<void> {
+    setArchiveBusy(true);
+    setNotice("");
+    try {
+      setPreview(
+        restorePreviewSchema.parse(await archiveRequest("/api/app/restore/preview", false))
+      );
+    } catch (error) {
+      setPreview(null);
+      setNotice(error instanceof Error ? error.message : "Could not inspect backup");
+    } finally {
+      setArchiveBusy(false);
+    }
+  }
+  async function restoreBackup(): Promise<void> {
+    setArchiveBusy(true);
+    setNotice("");
+    try {
+      const result = restoreResultSchema.parse(await archiveRequest("/api/app/restore", true));
+      setNotice(
+        `Backup restored: ${result.documents} documents and ${result.newRevisions} new revisions.`
+      );
+      setPreview(null);
+      setBackup(null);
+      setReplace(false);
+      setConfirmation("");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Restore failed");
+    } finally {
+      setArchiveBusy(false);
+    }
   }
   if (data.value === null) return <p>{data.error ?? "Loading…"}</p>;
   return (
@@ -650,9 +969,91 @@ function Manage({ passkeysEnabled }: { passkeysEnabled: boolean }): React.JSX.El
         </ol>
       </section>
       <section className="panel">
-        <h2>Export</h2>
-        <a href="/api/app/export.jsonl">Download JSONL history</a> ·{" "}
-        <a href="/api/app/export.md">Download current Markdown</a>
+        <h2>Backup and restore</h2>
+        <p>
+          <a href="/api/app/backup">Download complete backup</a>
+        </p>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void inspectBackup();
+          }}
+        >
+          <label>
+            Backup file
+            <input
+              type="file"
+              accept=".zip,.wmem.zip,application/zip"
+              required
+              onChange={(event) => {
+                setBackup(event.target.files?.[0] ?? null);
+                setPreview(null);
+              }}
+            />
+          </label>
+          <button disabled={archiveBusy || backup === null}>Inspect backup</button>
+        </form>
+        {preview === null ? null : (
+          <div className="restore-preview">
+            <p>
+              Version {preview.manifest.formatVersion} backup from {preview.manifest.createdAt}:{" "}
+              {preview.preview.documents} documents, {preview.preview.revisions} revisions.
+            </p>
+            <p>
+              Restore would add {preview.preview.newDocuments} documents and{" "}
+              {preview.preview.newRevisions} revisions.
+            </p>
+            {preview.preview.conflicts.length === 0 ? (
+              <p className="notice">No conflicts found.</p>
+            ) : (
+              <>
+                <p className="notice">
+                  {preview.preview.conflicts.length} conflict(s) must be resolved or replaced.
+                </p>
+                <ul>
+                  {preview.preview.conflicts.map((conflict) => (
+                    <li key={conflict.slug}>
+                      <strong>{conflict.slug}</strong>: {conflict.message}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <label>
+              <input
+                type="checkbox"
+                checked={replace}
+                onChange={(event) => {
+                  setReplace(event.target.checked);
+                  setConfirmation("");
+                }}
+              />
+              Replace every existing document before restoring
+            </label>
+            {replace ? (
+              <label>
+                Type {data.value.restoreConfirmation} to confirm
+                <input
+                  value={confirmation}
+                  onChange={(event) => {
+                    setConfirmation(event.target.value);
+                  }}
+                />
+              </label>
+            ) : null}
+            <button
+              className={replace ? "danger" : undefined}
+              disabled={
+                archiveBusy ||
+                (!replace && preview.preview.conflicts.length > 0) ||
+                (replace && confirmation !== data.value.restoreConfirmation)
+              }
+              onClick={() => void restoreBackup()}
+            >
+              {replace ? "Replace and restore" : "Restore backup"}
+            </button>
+          </div>
+        )}
       </section>
     </>
   );

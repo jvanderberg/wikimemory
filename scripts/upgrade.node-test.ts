@@ -5,12 +5,13 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { deploymentArguments, installArguments } from "./cli-options.ts";
 import {
+  DEPLOYMENT_RECORD_SCHEMA,
   deploymentPaths,
   deploymentRecordFromConfig,
   requireInstalledDeployment
 } from "./deployment-record.ts";
 import { DEPLOYMENT_VERIFY_ATTEMPTS, deploymentVerifyDelay } from "./deployment-wait.ts";
-import { localConfig } from "./dev.ts";
+import { localConfig, localDeploymentRecord } from "./dev.ts";
 import { statusSummary } from "./status.ts";
 import { boundedOutputChunk, conciseDiagnostic, conciseError, runCommand } from "./subprocess.ts";
 import type { ReleaseManifest } from "./upgrade.ts";
@@ -358,8 +359,15 @@ await describe("packaged upgrade", async () => {
   await it("routes deployment options without leaking them into subcommands", () => {
     assert.deepEqual(deploymentArguments(["--yes", "--deployment", "scratch"]), {
       deployment: "scratch",
+      local: false,
       remaining: ["--yes"]
     });
+    assert.deepEqual(deploymentArguments(["create", "--local", "--output", "backup.zip"]), {
+      deployment: "wikimemory",
+      local: true,
+      remaining: ["create", "--output", "backup.zip"]
+    });
+    assert.throws(() => deploymentArguments(["--local", "--deployment", "scratch"]));
     assert.deepEqual(installArguments("scratch", ["--yes"]), [
       "--yes",
       "--worker-name",
@@ -379,5 +387,14 @@ await describe("packaged upgrade", async () => {
     assert.ok(config.includes(`"directory": ${JSON.stringify(join(packageRoot, "dist", "web"))}`));
     assert.match(config, /"run_worker_first": true/u);
     assert.match(config, /"APP_ENV": "local"/u);
+    assert.equal(localDeploymentRecord([]).origin, "http://127.0.0.1:8787");
+    assert.equal(localDeploymentRecord(["--port", "8790"]).origin, "http://127.0.0.1:8790");
+    assert.throws(() => localDeploymentRecord(["--port", "70000"]));
+    assert.throws(() =>
+      DEPLOYMENT_RECORD_SCHEMA.parse({
+        ...localDeploymentRecord([]),
+        origin: "http://memory.example"
+      })
+    );
   });
 });

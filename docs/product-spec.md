@@ -13,7 +13,7 @@ The deployment is owned by the user in their Cloudflare account. It exposes:
 
 - a protected Streamable HTTP MCP endpoint for Claude, Codex, and compatible
   clients;
-- a responsive web application for browsing, search, history, export, restoration,
+- a responsive web application for browsing, search, history, backup, restoration,
   credential/session management, and permanent purge; and
 - local equivalents of the Worker, D1 database, identity provider, web app, and
   MCP endpoint for development without deployment.
@@ -22,7 +22,7 @@ The service is deterministic. It does not make model API calls or create embeddi
 
 ## 2. Product principles
 
-1. **The database is authoritative.** Markdown and JSONL are exports.
+1. **The database is authoritative.** The Wikimemory ZIP is its portable backup format.
 2. **Ordinary history is append-only.** Updates and restores append full-snapshot
    revisions.
 3. **One controlled write path.** MCP and web adapters call the same domain service.
@@ -30,7 +30,7 @@ The service is deterministic. It does not make model API calls or create embeddi
    teach this behavior.
 5. **Identity and intent are auditable.** The authenticated subject, OAuth client,
    optional agent label, reason, operation ID, and server timestamp are distinct.
-6. **Portability is a feature.** A user can export lossless history without
+6. **Portability is a feature.** A user can download complete content history without
    Cloudflare-specific tooling.
 7. **Stored content is data.** Retrieved content never outranks user, system,
    repository, or skill instructions.
@@ -52,13 +52,16 @@ or information useful only within the current turn.
 
 The web application has four main areas:
 
-- **Browse** — current documents with metadata, links, provenance, and history.
+- **Browse** — the complete current document index grouped by project and document
+  type, matching the portable archive's content tree.
 - **Search** — full-text search across current documents.
-- **Recent** — recent revisions with links to their historical snapshots.
-- **Manage** — passkeys, authorized MCP clients, browser sessions, and exports.
+- **Recent** — recent revisions with list and icon views and links to their historical
+  snapshots.
+- **Manage** — passkeys, authorized MCP clients, browser sessions, and backup/restore.
 
-Wikimemory has no general-purpose document editor. A document's history page supports
-restore by appending a compensating revision. Purge permanently deletes a document
+Document bodies render as GitHub-flavored Markdown by default with a raw Markdown
+toggle. Wikimemory has no general-purpose document editor. A document's history page
+supports restore by appending a compensating revision. Purge permanently deletes a document
 and all of its revision content after recent authentication and explicit typed
 confirmation.
 
@@ -148,16 +151,18 @@ and recent upstream authentication, not by MCP scopes.
 
 ## 8. Export and migration boundary
 
-Wikimemory has no server-side archive upload or automated `llmwiki` migration.
-Portable restore and custom local importers use the admin-only entity CRUD API, where
-each identity and immutable revision is schema-validated. Raw SQLite databases are
-never uploaded to the Worker.
+Wikimemory accepts only its versioned, checksummed ZIP archive through the owner web
+application. Upload is validated and previewed before restore. An instance containing
+exactly the two untouched generated starter pages is treated as empty and those pages
+are replaced automatically; guarded replacement of any other content requires explicit
+confirmation and recent passkey authentication. CLI restore and
+custom local importers use the same archive contract and admin-only entity CRUD API,
+where each identity and immutable revision is schema-validated. Raw SQLite databases
+are never uploaded to the Worker. Automated `llmwiki` migration is not included.
 
-Exports are:
-
-- lossless versioned JSONL containing memory records, sanitized actor projections and
-  memberships, opaque client attribution, purge tombstones, and schema version; and
-- Markdown containing current state and a generated index.
+The single export format is a portable Wikimemory ZIP containing document identities,
+complete immutable history, metadata, links, a versioned manifest, human-readable
+Markdown, and checksums.
 
 OAuth tokens, sessions, secrets, and provider configuration are never exported.
 
@@ -190,15 +195,15 @@ The product is release-ready when:
    account;
 2. domain and MCP tests prove append, conflict, idempotency, restore, purge, scope,
    secret-rejection, and FTS behavior;
-3. lossless JSONL export contains versioned domain data and sanitized attribution,
-   while Markdown export contains complete current state;
+3. the Wikimemory ZIP round-trips document identities, complete revision history,
+   metadata, and links while remaining directly browsable by people and LLMs;
 4. Codex CLI and Claude Code use the local MCP endpoint with the distributed skills;
 5. a deployed instance authenticates with a passkey and works from Codex CLI, Claude
    Code, Claude web, and Claude mobile;
 6. the owner can browse/search the web app and inspect precisely who caused each
    revision;
 7. purge replay, OAuth registration and scope profiles, passkey bootstrap reuse,
-   log redaction, and bounded export behavior have automated
+   log redaction, and bounded archive behavior have automated
    acceptance coverage; and
 8. the core web browse, search, history, authentication, and management flows pass in
    both Chrome and WebKit component tests, with passkey E2E covered separately.

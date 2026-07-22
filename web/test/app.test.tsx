@@ -67,13 +67,22 @@ test("signs in as the local owner and browses documents", async () => {
             type: "project",
             title: "Active project",
             summary: "Current project summary",
-            status: "active"
+            status: "active",
+            project: null
           },
           {
             slug: "unsummarized-note",
             type: "note",
             title: "Unsummarized note",
-            summary: null
+            summary: null,
+            project: "active-project"
+          },
+          {
+            slug: "unfiled-source",
+            type: "source",
+            title: "Unfiled source",
+            summary: "Outside a project",
+            project: null
           }
         ]
       });
@@ -88,6 +97,10 @@ test("signs in as the local owner and browses documents", async () => {
   await expect.element(page.getByText("Current project summary")).toBeVisible();
   await expect.element(page.getByText("No summary")).toBeVisible();
   await expect.element(page.getByText("active", { exact: true })).toBeVisible();
+  await expect.element(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await expect.element(page.getByRole("heading", { name: "Notes" })).toBeVisible();
+  await expect.element(page.getByRole("heading", { name: "Unfiled", exact: true })).toBeVisible();
+  await expect.element(page.getByRole("heading", { name: "Sources" })).toBeVisible();
 });
 
 test("shows production sign-in and a session loading error", async () => {
@@ -176,8 +189,11 @@ test("renders recent revisions", async () => {
         revisions: [
           {
             slug: "coverage-project",
+            type: "project",
             revision_id: "revision-2",
             revision_number: 2,
+            title: "Coverage project",
+            summary: "Coverage status",
             created_at: "2026-07-19T12:00:00Z",
             reason: "raise coverage"
           }
@@ -189,10 +205,19 @@ test("renders recent revisions", async () => {
   await render(<App />);
   await expect.element(page.getByText("coverage-project revision 2")).toBeVisible();
   await expect.element(page.getByText(/raise coverage/u)).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "List view" }))
+    .toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Icon view" }).click();
+  await expect.element(page.getByRole("heading", { name: "Coverage project" })).toBeVisible();
+  await expect.element(page.getByText("Coverage status")).toBeVisible();
+  await page.getByRole("button", { name: "List view" }).click();
+  await expect.element(page.getByText("coverage-project revision 2")).toBeVisible();
 });
 
 test("renders a historical document with metadata and restore control", async () => {
   history.replaceState(null, "", "/app/docs/coverage-project?revision=revision-1");
+  const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = requestUrl(input);
     if (url.pathname === "/api/app/session") return response(session("local"));
@@ -205,7 +230,7 @@ test("renders a historical document with metadata and restore control", async ()
           type: "project",
           title: "Coverage project",
           summary: null,
-          body: "Historical body is rendered as text.",
+          body: "## Historical section\n\n**Historical body** is rendered as Markdown.",
           createdAt: "2026-07-19T11:00:00Z",
           metadata: [{ key: "status", value: "active" }]
         },
@@ -224,7 +249,24 @@ test("renders a historical document with metadata and restore control", async ()
 
   await render(<App />);
   await expect.element(page.getByRole("heading", { name: "Coverage project" })).toBeVisible();
-  await expect.element(page.getByText("Historical body is rendered as text.")).toBeVisible();
+  await expect.element(page.getByRole("heading", { name: "Historical section" })).toBeVisible();
+  await expect.element(page.getByText("Historical body", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Rendered" }))
+    .toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Raw" }).click();
+  await expect
+    .element(
+      page.getByText("## Historical section\n\n**Historical body** is rendered as Markdown.")
+    )
+    .toBeVisible();
+  await page.getByRole("button", { name: "Rendered" }).click();
+  await expect.element(page.getByRole("heading", { name: "Historical section" })).toBeVisible();
+  await page.getByRole("button", { name: "Copy Markdown" }).click();
+  expect(writeText).toHaveBeenCalledWith(
+    "## Historical section\n\n**Historical body** is rendered as Markdown."
+  );
+  await expect.element(page.getByText("Markdown copied.")).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Restore this revision" })).toBeVisible();
   await expect.element(page.getByText("status")).toBeVisible();
   await expect.element(page.getByText("coverage-project", { exact: true })).toBeVisible();
@@ -272,7 +314,7 @@ test("renders current-document and document-error states", async () => {
   await expect.element(page.getByText("Document does not exist")).toBeVisible();
 });
 
-test("renders production passkey, client, session, and export management", async () => {
+test("renders production passkey, client, session, and backup management", async () => {
   history.replaceState(null, "", "/app/manage");
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = requestUrl(input);
@@ -304,7 +346,8 @@ test("renders production passkey, client, session, and export management", async
             createdAt: "2026-07-19T12:00:00Z",
             current: true
           }
-        ]
+        ],
+        restoreConfirmation: "wikimemory"
       });
     return response({ ok: true });
   });
@@ -315,7 +358,6 @@ test("renders production passkey, client, session, and export management", async
   await expect.element(page.getByText(/backed up/u)).toBeVisible();
   await expect.element(page.getByText("Codex CLI")).toBeVisible();
   await expect.element(page.getByText("Current browser")).toBeVisible();
-  await expect.element(page.getByRole("link", { name: "Download JSONL history" })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Revoke" }).first()).toBeDisabled();
 });
 
@@ -368,7 +410,8 @@ test("revokes a passkey from a multi-credential management view", async () => {
             createdAt: "2026-07-19T11:00:00Z",
             current: false
           }
-        ]
+        ],
+        restoreConfirmation: "wikimemory"
       });
     return response({ error: "unexpected request" }, 500);
   });
@@ -390,12 +433,126 @@ test("renders local management without passkey controls", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = requestUrl(input);
     if (url.pathname === "/api/app/session") return response(session("local"));
-    return response({ passkeys: [], clients: [], sessions: [] });
+    return response({
+      passkeys: [],
+      clients: [],
+      sessions: [],
+      restoreConfirmation: "wikimemory-local"
+    });
   });
   await render(<App />);
   await expect
     .element(page.getByText("Passkey management is disabled for the fake local owner."))
     .toBeVisible();
+});
+
+test("downloads, inspects, and restores a backup from management", async () => {
+  history.replaceState(null, "", "/app/manage");
+  const uploads: string[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/app/session") return response(session("local"));
+    if (url.pathname === "/api/app/manage")
+      return response({
+        passkeys: [],
+        clients: [],
+        sessions: [],
+        restoreConfirmation: "wikimemory-local"
+      });
+    if (url.pathname === "/api/app/restore/preview") {
+      expect(init?.body).toBeInstanceOf(FormData);
+      uploads.push("preview");
+      return response({
+        manifest: {
+          formatVersion: 1,
+          createdAt: "2026-07-21T12:00:00Z",
+          counts: { documents: 2, revisions: 4 }
+        },
+        preview: {
+          documents: 2,
+          revisions: 4,
+          newDocuments: 1,
+          matchingDocuments: 1,
+          newRevisions: 2,
+          replacesStarterContent: true,
+          conflicts: []
+        }
+      });
+    }
+    if (url.pathname === "/api/app/restore") {
+      expect(init?.body).toBeInstanceOf(FormData);
+      uploads.push("restore");
+      return response({ restored: true, documents: 2, newRevisions: 2 });
+    }
+    return response({ error: "unexpected request" }, 500);
+  });
+
+  await render(<App />);
+  await expect
+    .element(page.getByRole("link", { name: "Download complete backup" }))
+    .toHaveAttribute("href", "/api/app/backup");
+  await page
+    .getByLabelText("Backup file")
+    .upload(new File(["archive"], "test.wmem.zip", { type: "application/zip" }));
+  await page.getByRole("button", { name: "Inspect backup" }).click();
+  await expect.element(page.getByText("No conflicts found.")).toBeVisible();
+  await expect.element(page.getByText(/2 documents, 4 revisions/u)).toBeVisible();
+  await page.getByRole("button", { name: "Restore backup" }).click();
+  await expect
+    .element(page.getByText("Backup restored: 2 documents and 2 new revisions."))
+    .toBeVisible();
+  expect(uploads).toEqual(["preview", "restore"]);
+});
+
+test("requires explicit confirmation before replacing conflicting content", async () => {
+  history.replaceState(null, "", "/app/manage");
+  const replacements: FormData[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/app/session") return response(session("local"));
+    if (url.pathname === "/api/app/manage")
+      return response({
+        passkeys: [],
+        clients: [],
+        sessions: [],
+        restoreConfirmation: "wikimemory-local"
+      });
+    if (url.pathname === "/api/app/restore/preview")
+      return response({
+        manifest: {
+          formatVersion: 1,
+          createdAt: "2026-07-21T12:00:00Z",
+          counts: { documents: 1, revisions: 1 }
+        },
+        preview: {
+          documents: 1,
+          revisions: 1,
+          newDocuments: 0,
+          matchingDocuments: 0,
+          newRevisions: 0,
+          replacesStarterContent: false,
+          conflicts: [{ slug: "home", message: "The target differs." }]
+        }
+      });
+    if (url.pathname === "/api/app/restore") {
+      if (init?.body instanceof FormData) replacements.push(init.body);
+      return response({ restored: true, documents: 1, newRevisions: 1 });
+    }
+    return response({ error: "unexpected request" }, 500);
+  });
+
+  await render(<App />);
+  await page
+    .getByLabelText("Backup file")
+    .upload(new File(["archive"], "conflict.wmem.zip", { type: "application/zip" }));
+  await page.getByRole("button", { name: "Inspect backup" }).click();
+  await expect.element(page.getByText("home", { exact: true })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Restore backup" })).toBeDisabled();
+  await page.getByLabelText("Replace every existing document before restoring").click();
+  await page.getByLabelText("Type wikimemory-local to confirm").fill("wikimemory-local");
+  await page.getByRole("button", { name: "Replace and restore" }).click();
+  await expect.poll(() => replacements.at(0)?.get("replace")).toBe("true");
+  expect(replacements.at(0)?.get("confirmation")).toBe("wikimemory-local");
 });
 
 test("renders login, local authorization, and missing registration token routes", async () => {
@@ -590,7 +747,8 @@ test("adds a passkey and revokes an MCP grant and browser session", async () => 
             createdAt: "2026-07-19T11:00:00Z",
             current: false
           }
-        ]
+        ],
+        restoreConfirmation: "wikimemory"
       });
     if (url.pathname === "/api/app/passkeys") {
       mutations.push(`${init?.method ?? "GET"} passkey`);

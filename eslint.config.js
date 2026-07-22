@@ -11,7 +11,7 @@ const typedFiles = [
 ];
 
 export default tseslint.config(
-  { ignores: ["node_modules", ".wrangler", "dist", "coverage"] },
+  { ignores: ["node_modules", ".wrangler", ".wikimemory", "dist", "coverage"] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked.map((config) => ({ ...config, files: typedFiles })),
   {

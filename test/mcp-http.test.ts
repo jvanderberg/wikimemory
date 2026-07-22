@@ -30,28 +30,32 @@ function encodedCursor(value: object): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
-async function authorize(): Promise<{
+async function authorize(existingClientId?: string): Promise<{
   accessToken: string;
   refreshToken: string;
   clientId: string;
 }> {
-  const registration = await responseJson(
-    await workerRequest("/oauth/register", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        client_name: "MCP coverage client",
-        redirect_uris: [REDIRECT_URI],
-        grant_types: ["authorization_code", "refresh_token"],
-        response_types: ["code"],
-        token_endpoint_auth_method: "none"
-      })
-    }),
-    z.object({ client_id: z.string() })
-  );
+  const clientId =
+    existingClientId ??
+    (
+      await responseJson(
+        await workerRequest("/oauth/register", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            client_name: "MCP coverage client",
+            redirect_uris: [REDIRECT_URI],
+            grant_types: ["authorization_code", "refresh_token"],
+            response_types: ["code"],
+            token_endpoint_auth_method: "none"
+          })
+        }),
+        z.object({ client_id: z.string() })
+      )
+    ).client_id;
   const query = new URLSearchParams({
     response_type: "code",
-    client_id: registration.client_id,
+    client_id: clientId,
     redirect_uri: REDIRECT_URI,
     scope: "memory:read memory:write memory:admin",
     state: "coverage-state",
@@ -93,7 +97,7 @@ async function authorize(): Promise<{
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "authorization_code",
-        client_id: registration.client_id,
+        client_id: clientId,
         code: code ?? "",
         redirect_uri: REDIRECT_URI,
         code_verifier: VERIFIER,
@@ -105,11 +109,32 @@ async function authorize(): Promise<{
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
-    clientId: registration.client_id
+    clientId
   };
 }
 
 describe("authenticated Streamable HTTP MCP", () => {
+  it("keeps an existing context authorized when the same client authorizes again", async () => {
+    const firstContext = await authorize();
+    await authorize(firstContext.clientId);
+
+    const refresh = await workerRequest("/oauth/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: firstContext.clientId,
+        refresh_token: firstContext.refreshToken,
+        resource: `${ORIGIN}/mcp`
+      })
+    });
+
+    expect(refresh.status).toBe(200);
+    expect(
+      z.object({ access_token: z.string(), refresh_token: z.string() }).parse(await refresh.json())
+    ).toBeDefined();
+  });
+
   it("exercises every V1 tool through the protocol boundary", async () => {
     const authorization = await authorize();
     const baseHeaders = {
