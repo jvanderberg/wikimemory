@@ -1,6 +1,6 @@
 {
   "name": "wikimemory",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Personal, passkey-protected memory for Claude, Codex, and other MCP clients",
   "license": "MIT",
   "repository": {
@@ -54,7 +54,7 @@
     "deploy": "wrangler deploy --config wrangler.production.jsonc",
     "test": "vitest run && npm run test:installer",
     "test:coverage": "vitest run --coverage.enabled",
-    "test:installer": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include=scripts/setup.ts --test-coverage-include=scripts/uninstall.ts --test-coverage-lines=50 --test-coverage-branches=70 --test-coverage-functions=60 --test scripts/api-auth.node-test.ts scripts/api-client.node-test.ts scripts/archive.node-test.ts scripts/browse.node-test.ts scripts/client-tools.node-test.ts scripts/setup.node-test.ts scripts/subprocess.node-test.ts scripts/upgrade.node-test.ts",
+    "test:installer": "node --experimental-strip-types --experimental-test-coverage --test-coverage-include=scripts/setup.ts --test-coverage-include=scripts/uninstall.ts --test-coverage-lines=50 --test-coverage-branches=70 --test-coverage-functions=60 --test scripts/api-auth.node-test.ts scripts/api-client.node-test.ts scripts/archive.node-test.ts scripts/browse.node-test.ts scripts/client-tools.node-test.ts scripts/setup.node-test.ts scripts/subprocess.node-test.ts scripts/upgrade.node-test.ts scripts/wrangler.node-test.ts",
     "test:package": "node --experimental-strip-types scripts/package-smoke.ts",
     "test:passkey": "node --experimental-strip-types scripts/passkey-e2e.ts",
     "test:watch": "vitest",

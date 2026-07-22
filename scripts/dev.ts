@@ -2,7 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { WIKIMEMORY_VERSION } from "../src/version.ts";
 import { type DeploymentRecord, writeDeploymentRecord } from "./deployment-record.ts";
-import { commandFailureMessage, runCommand } from "./subprocess.ts";
+import { commandFailureMessage } from "./subprocess.ts";
+import { runWrangler as executeWrangler } from "./wrangler.ts";
 
 export function localConfig(packageRoot: string): string {
   return `${JSON.stringify(
@@ -35,7 +36,7 @@ export function localConfig(packageRoot: string): string {
 }
 
 async function runWrangler(args: string[], inherited = false): Promise<void> {
-  const result = await runCommand("npx", ["wrangler", ...args], {
+  const result = await executeWrangler(args, {
     ...(inherited ? { forwardLimitBytes: 8000, inheritStdin: true } : {})
   });
   if (result.exitCode !== 0) throw new Error(commandFailureMessage("Wrangler", result));

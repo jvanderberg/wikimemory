@@ -4,12 +4,8 @@ import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { removePackagedDeploymentRecord, uninstallRuntime } from "./lifecycle-runtime.ts";
 import { bindingProperty, configValue, deploymentListIndicatesExisting } from "./setup.ts";
-import {
-  type CommandResult,
-  commandFailureMessage,
-  conciseError,
-  runCommand as executeCommand
-} from "./subprocess.ts";
+import { type CommandResult, commandFailureMessage, conciseError } from "./subprocess.ts";
+import { runWrangler } from "./wrangler.ts";
 
 const CONFIG_PATH = uninstallRuntime.config;
 const STATE_PATH = uninstallRuntime.installProgress;
@@ -85,7 +81,8 @@ export function clientRemovalInstructions(connectorName = "wikimemory"): string 
 }
 
 async function run(args: string[], allowFailure = false): Promise<CommandResult> {
-  const result = await executeCommand("npx", args);
+  if (args[0] !== "wrangler") throw new Error("Expected a Wrangler command");
+  const result = await runWrangler(args.slice(1));
   if (result.exitCode !== 0 && !allowFailure)
     throw new Error(commandFailureMessage("Cloudflare resource deletion", result));
   return result;

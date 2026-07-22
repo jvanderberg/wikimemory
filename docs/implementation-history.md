@@ -1,5 +1,11 @@
 # Implementation history
 
+## 0.3.1
+
+- Cloudflare lifecycle commands now execute the exact Wrangler version installed with
+  Wikimemory. Install, upgrade, uninstall, and local development no longer start a nested
+  `npx` process or download a second Wrangler copy.
+
 Status: completed initial implementation sequence.
 
 This records the phases used to build Wikimemory. Each phase ended with passing tests

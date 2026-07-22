@@ -15,9 +15,9 @@ import {
   type CommandResult,
   commandFailureMessage,
   conciseError,
-  runAttachedCommand,
   runCommand
 } from "./subprocess.ts";
+import { runAttachedWrangler, runWrangler } from "./wrangler.ts";
 
 export { commandFailureMessage } from "./subprocess.ts";
 
@@ -158,22 +158,21 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-async function run(
-  command: string,
+async function runCloudflare(
   args: string[],
   input?: string,
   allowFailure = false
 ): Promise<CommandResult> {
-  const result = await runCommand(command, args, { ...(input === undefined ? {} : { input }) });
+  const result = await runWrangler(args, { ...(input === undefined ? {} : { input }) });
   if (result.exitCode !== 0 && !allowFailure)
-    throw new Error(commandFailureMessage(cloudflareOperation(args), result));
+    throw new Error(commandFailureMessage(cloudflareOperation(["wrangler", ...args]), result));
   return result;
 }
 
-async function runInteractive(command: string, args: string[]): Promise<void> {
-  const result = await runAttachedCommand(command, args);
+async function runInteractiveCloudflare(args: string[]): Promise<void> {
+  const result = await runAttachedWrangler(args);
   if (result.exitCode !== 0)
-    throw new Error(commandFailureMessage(cloudflareOperation(args), result));
+    throw new Error(commandFailureMessage(cloudflareOperation(["wrangler", ...args]), result));
 }
 
 export function initialConfig(options: Options, account: Account): string {
@@ -271,8 +270,7 @@ export function migrationTemporaryPrefix(
 }
 
 export async function applyRemoteMigrations(databaseName: string): Promise<void> {
-  await run("npx", [
-    "wrangler",
+  await runCloudflare([
     "d1",
     "execute",
     databaseName,
@@ -282,8 +280,7 @@ export async function applyRemoteMigrations(databaseName: string): Promise<void>
     "--command",
     "CREATE TABLE IF NOT EXISTS d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)"
   ]);
-  const listed = await run("npx", [
-    "wrangler",
+  const listed = await runCloudflare([
     "d1",
     "execute",
     databaseName,
@@ -317,8 +314,7 @@ export async function applyRemoteMigrations(databaseName: string): Promise<void>
         ),
         "utf8"
       );
-      await run("npx", [
-        "wrangler",
+      await runCloudflare([
         "d1",
         "execute",
         databaseName,
@@ -348,7 +344,7 @@ async function confirm(text: string, automatic: boolean): Promise<void> {
 }
 
 async function selectAccount(options: Options): Promise<{ account: Account; identity: string }> {
-  const result = await run("npx", ["wrangler", "whoami", "--json"], undefined, true);
+  const result = await runCloudflare(["whoami", "--json"], undefined, true);
   let whoami: z.infer<typeof WHOAMI_SCHEMA>;
   try {
     whoami = WHOAMI_SCHEMA.parse(JSON.parse(result.stdout));
@@ -427,9 +423,8 @@ export function handoff(origin: string, rawToken: string, deploymentName: string
 }
 
 async function remoteWorkerExists(workerName: string): Promise<boolean> {
-  const result = await run(
-    "npx",
-    ["wrangler", "deployments", "list", "--name", workerName, "--json", "--config", CONFIG_PATH],
+  const result = await runCloudflare(
+    ["deployments", "list", "--name", workerName, "--json", "--config", CONFIG_PATH],
     undefined,
     true
   );
@@ -461,10 +456,10 @@ async function existingResourceNames(): Promise<{
   namespaces: Set<string>;
 }> {
   const d1 = await retryOperation("D1 database lookup", async () =>
-    run("npx", ["wrangler", "d1", "list", "--json", "--config", CONFIG_PATH])
+    runCloudflare(["d1", "list", "--json", "--config", CONFIG_PATH])
   );
   const kv = await retryOperation("KV namespace lookup", async () =>
-    run("npx", ["wrangler", "kv", "namespace", "list", "--config", CONFIG_PATH])
+    runCloudflare(["kv", "namespace", "list", "--config", CONFIG_PATH])
   );
   const databases = z.array(z.looseObject({ name: z.string() })).parse(JSON.parse(d1.stdout));
   const namespaces = z.array(z.looseObject({ title: z.string() })).parse(JSON.parse(kv.stdout));
@@ -478,8 +473,7 @@ async function ensureResources(options: Options): Promise<void> {
   let config = await readFile(CONFIG_PATH, "utf8");
   if (!hasBinding(config, "DB")) {
     console.log("  Creating D1 database…");
-    await run("npx", [
-      "wrangler",
+    await runCloudflare([
       "d1",
       "create",
       options.databaseName,
@@ -493,8 +487,7 @@ async function ensureResources(options: Options): Promise<void> {
   }
   if (!hasBinding(config, "OAUTH_KV")) {
     console.log("  Creating OAuth state namespace…");
-    await run("npx", [
-      "wrangler",
+    await runCloudflare([
       "kv",
       "namespace",
       "create",
@@ -512,14 +505,17 @@ async function finalizeDeployment(options: Options): Promise<void> {
   const existingConfig = await readFile(CONFIG_PATH, "utf8");
   const assetConfig = withWebAssets(existingConfig);
   if (assetConfig !== existingConfig) await writeFile(CONFIG_PATH, assetConfig, "utf8");
-  if (!setupRuntime.packaged) await run("npm", ["run", "build:web"]);
+  if (!setupRuntime.packaged) {
+    const build = await runCommand("npm", ["run", "build:web"]);
+    if (build.exitCode !== 0) throw new Error(commandFailureMessage("Web build", build));
+  }
   let config = await readFile(CONFIG_PATH, "utf8");
   let origin = configuredOrigin(config);
   if (origin === null) throw new Error(`${CONFIG_PATH} has no valid APP_BASE_URL.`);
   if (origin === BOOTSTRAP_ORIGIN) {
     console.log("  Creating Worker address…");
-    const deployArgs = ["wrangler", "deploy", "--strict", "--config", CONFIG_PATH];
-    let firstDeploy = await run("npx", deployArgs, undefined, true);
+    const deployArgs = ["deploy", "--strict", "--config", CONFIG_PATH];
+    let firstDeploy = await runCloudflare(deployArgs, undefined, true);
     if (firstDeploy.exitCode !== 0 && workersDevRegistrationRequired(firstDeploy)) {
       if (!process.stdin.isTTY || !process.stdout.isTTY) {
         throw new Error(
@@ -529,8 +525,8 @@ async function finalizeDeployment(options: Options): Promise<void> {
       console.log(
         "\nCloudflare needs a one-time account subdomain. Continuing interactively with Wrangler; choose an available workers.dev name when prompted."
       );
-      await runInteractive("npx", deployArgs);
-      firstDeploy = await run("npx", deployArgs, undefined, true);
+      await runInteractiveCloudflare(deployArgs);
+      firstDeploy = await runCloudflare(deployArgs, undefined, true);
     }
     if (firstDeploy.exitCode !== 0) {
       throw new Error(commandFailureMessage("Worker deployment", firstDeploy));
@@ -554,13 +550,9 @@ async function finalizeDeployment(options: Options): Promise<void> {
   await applyRemoteMigrations(boundDatabaseName);
   const secret = bootstrapSecret();
   console.log("  Deploying Wikimemory…");
-  await run("npx", ["wrangler", "deploy", "--strict", "--config", CONFIG_PATH]);
+  await runCloudflare(["deploy", "--strict", "--config", CONFIG_PATH]);
   console.log("  Creating one-time owner setup…");
-  await run(
-    "npx",
-    ["wrangler", "secret", "put", "SETUP_TOKEN_HASH", "--config", CONFIG_PATH],
-    secret.hash
-  );
+  await runCloudflare(["secret", "put", "SETUP_TOKEN_HASH", "--config", CONFIG_PATH], secret.hash);
   console.log("  Waiting for deployment readiness…");
   await verifyEndpoint(origin, "/health", "ok");
   await verifyEndpoint(origin, "/ready", "ready");
@@ -670,11 +662,7 @@ async function recover(options: Options): Promise<void> {
     throw new Error(`${CONFIG_PATH} does not contain a deployed APP_BASE_URL; use --resume first.`);
   await confirm(`Rotate the one-time owner setup credential for ${origin}?`, options.yes);
   const secret = bootstrapSecret();
-  await run(
-    "npx",
-    ["wrangler", "secret", "put", "SETUP_TOKEN_HASH", "--config", CONFIG_PATH],
-    secret.hash
-  );
+  await runCloudflare(["secret", "put", "SETUP_TOKEN_HASH", "--config", CONFIG_PATH], secret.hash);
   await verifyEndpoint(origin, "/health", "ok");
   await verifyEndpoint(origin, "/ready", "ready");
   console.log(`\n${handoff(origin, secret.raw, options.workerName)}`);

@@ -13,8 +13,9 @@ import {
 } from "./deployment-record.ts";
 import { DEPLOYMENT_VERIFY_ATTEMPTS, deploymentVerifyDelay } from "./deployment-wait.ts";
 import { packageRoot } from "./package-root.ts";
-import { type CommandResult, commandFailureMessage, runCommand } from "./subprocess.ts";
+import { type CommandResult, commandFailureMessage } from "./subprocess.ts";
 import { isReactApplicationShell } from "./web-shell.ts";
+import { runWrangler } from "./wrangler.ts";
 
 const PACKAGE_ROOT = packageRoot();
 const DEPLOYMENT_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/u;
@@ -191,8 +192,8 @@ function migrationBundle(sql: string, migration: ReleaseManifest["migrations"][n
   return `${sql.trimEnd()}\n\nINSERT INTO d1_migrations(name) VALUES ('${name}');\n`;
 }
 
-async function command(commandName: string, args: string[]): Promise<CommandResult> {
-  return await runCommand(commandName, args);
+async function command(args: string[]): Promise<CommandResult> {
+  return await runWrangler(args);
 }
 
 export function upgradeSummary(
@@ -316,18 +317,10 @@ export async function runUpgrade(args: string[]): Promise<void> {
     await writeFile(configPath, productionUpgradeConfig(record, PACKAGE_ROOT), "utf8");
     const common = ["--config", configPath];
     const [whoami, deployments, d1, kv] = await Promise.all([
-      command("npx", ["wrangler", "whoami", "--json"]),
-      command("npx", [
-        "wrangler",
-        "deployments",
-        "list",
-        "--name",
-        record.workerName,
-        "--json",
-        ...common
-      ]),
-      command("npx", ["wrangler", "d1", "list", "--json", ...common]),
-      command("npx", ["wrangler", "kv", "namespace", "list", ...common])
+      command(["whoami", "--json"]),
+      command(["deployments", "list", "--name", record.workerName, "--json", ...common]),
+      command(["d1", "list", "--json", ...common]),
+      command(["kv", "namespace", "list", ...common])
     ]);
     if ([whoami, deployments, d1, kv].some((result) => result.exitCode !== 0))
       throw new Error(
@@ -350,8 +343,7 @@ export async function runUpgrade(args: string[]): Promise<void> {
         .array(z.object({ id: z.string(), title: z.string() }))
         .parse(parsedJson(kv.stdout))
     });
-    const listed = await command("npx", [
-      "wrangler",
+    const listed = await command([
       "d1",
       "execute",
       record.databaseId,
@@ -390,8 +382,7 @@ export async function runUpgrade(args: string[]): Promise<void> {
       const bundlePath = join(temporary, migration.name);
       const sql = await readFile(join(PACKAGE_ROOT, "migrations", migration.name), "utf8");
       await writeFile(bundlePath, migrationBundle(sql, migration), "utf8");
-      const result = await command("npx", [
-        "wrangler",
+      const result = await command([
         "d1",
         "execute",
         record.databaseId,
@@ -403,7 +394,7 @@ export async function runUpgrade(args: string[]): Promise<void> {
       if (result.exitCode !== 0) throw new Error(commandFailureMessage("Database update", result));
     }
     console.log("  Deploying Wikimemory…");
-    const deployed = await command("npx", ["wrangler", "deploy", "--strict", ...common]);
+    const deployed = await command(["deploy", "--strict", ...common]);
     if (deployed.exitCode !== 0)
       throw new Error(commandFailureMessage("Worker deployment", deployed));
     console.log("  Verifying deployment…");
