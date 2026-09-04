@@ -1,4 +1,4 @@
-import { exports } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { z } from "zod";
 
 const ORIGIN = "https://example.test";
@@ -114,6 +114,65 @@ async function authorize(existingClientId?: string): Promise<{
 }
 
 describe("authenticated Streamable HTTP MCP", () => {
+  it("keeps personal client registrations and rotating refresh grants until revocation", async () => {
+    const authorization = await authorize();
+    const clientKey = `client:${authorization.clientId}`;
+    const [userId, grantId] = authorization.refreshToken.split(":");
+    const grantKey = `grant:${userId}:${grantId}`;
+    const [clients, grants, grant] = await Promise.all([
+      env.OAUTH_KV.list({ prefix: clientKey }),
+      env.OAUTH_KV.list({ prefix: grantKey }),
+      env.OAUTH_KV.get<Record<string, unknown>>(grantKey, "json")
+    ]);
+
+    expect(clients.keys).toEqual([expect.objectContaining({ name: clientKey })]);
+    expect(clients.keys[0]).not.toHaveProperty("expiration");
+    expect(grants.keys).toEqual([expect.objectContaining({ name: grantKey })]);
+    expect(grants.keys[0]).not.toHaveProperty("expiration");
+    expect(grant).not.toHaveProperty("expiresAt");
+  });
+
+  it("tells clients and LLMs how to recover from missing authentication", async () => {
+    const response = await workerRequest("/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream"
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toContain("resource_metadata=");
+    expect(response.headers.get("www-authenticate")).toContain(
+      "repeated retries without reauthorization will not fix it"
+    );
+    const error = z
+      .object({
+        error: z.string(),
+        error_description: z.string(),
+        recovery: z.object({
+          action: z.string(),
+          retry: z.string(),
+          defaultClientCommands: z.object({
+            codex: z.array(z.string()),
+            claudeCode: z.array(z.string())
+          })
+        })
+      })
+      .parse(await response.json());
+    expect(error.error).toBe("invalid_token");
+    expect(error.error_description).toContain("Tell the user to reauthorize");
+    expect(error.recovery).toMatchObject({
+      action: "reauthorize",
+      retry: "after_reauthorization"
+    });
+    expect(error.recovery.defaultClientCommands.codex).toContain("codex mcp logout wikimemory");
+    expect(error.recovery.defaultClientCommands.claudeCode).toContain(
+      "claude mcp logout wikimemory"
+    );
+  });
+
   it("keeps an existing context authorized when the same client authorizes again", async () => {
     const firstContext = await authorize();
     await authorize(firstContext.clientId);

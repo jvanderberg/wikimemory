@@ -144,6 +144,11 @@ Passkey registration requires a hashed, one-use bootstrap value produced by the
 installer. Rotating that secret through the owner's Cloudflare account is the
 recovery mechanism.
 
+Personal MCP client registrations and rotating refresh grants remain valid until the
+owner explicitly revokes them or performs passkey recovery. Access tokens remain
+short-lived. Regular use must not force periodic reauthorization merely because an
+absolute client-registration or refresh-grant timer elapsed.
+
 Normal agent connections request `memory:read memory:write`. Administrative MCP
 connections explicitly request all three scopes; Wikimemory does not depend on
 incremental scope elevation. Browser administration is authorized by owner membership

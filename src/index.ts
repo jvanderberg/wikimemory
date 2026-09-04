@@ -6,6 +6,7 @@ import {
   handleLocalAuthorization,
   localAuthorizationOptions
 } from "./auth/local";
+import { wikimemoryOAuthErrorResponse } from "./auth/oauth-errors";
 import {
   beginPasskeyAuthorization,
   passkeyAuthorizationOptions,
@@ -116,6 +117,13 @@ async function safeJson(operation: () => Promise<Response>): Promise<Response> {
   }
 }
 
+function noTimeBasedExpiry(): number {
+  // The provider documents explicit undefined as its no-expiry setting, but its
+  // optional-property type does not include undefined under exactOptionalPropertyTypes.
+  // @ts-expect-error This returns the provider's documented runtime sentinel.
+  return undefined;
+}
+
 export default new OAuthProvider<Env>({
   apiHandlers: {
     "/api/v1/": CrudApiHandler,
@@ -130,9 +138,12 @@ export default new OAuthProvider<Env>({
   allowImplicitFlow: false,
   disallowPublicClientRegistration: false,
   accessTokenTTL: 3600,
-  refreshTokenTTL: 2_592_000,
-  clientRegistrationTTL: 7_776_000,
+  // Personal MCP connections remain valid until the owner revokes them. Access
+  // tokens are still short-lived and refresh tokens still rotate on every use.
+  refreshTokenTTL: noTimeBasedExpiry(),
+  clientRegistrationTTL: noTimeBasedExpiry(),
   tokenExchangeCallback: downscopeAccessToken,
+  onError: wikimemoryOAuthErrorResponse,
   resourceMetadata: {
     scopes_supported: ["memory:read", "memory:write", "memory:admin"],
     bearer_methods_supported: ["header"],

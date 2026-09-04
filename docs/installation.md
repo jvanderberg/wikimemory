@@ -257,7 +257,8 @@ claude mcp login wikimemory
 
 An already-running conversation can retain the connector session it opened before
 authentication. Start a new conversation or restart the CLI. If it still reports
-unauthenticated, refresh the client-owned credentials:
+unauthenticated, its error response tells the agent to ask you to reauthorize instead
+of retrying indefinitely. Refresh the client-owned credentials:
 
 ```sh
 codex mcp logout wikimemory
@@ -268,6 +269,11 @@ claude mcp login wikimemory
 ```
 
 Then verify `orient` in a fresh conversation.
+
+Deployments upgraded from a version with the former 30-day refresh-grant or 90-day
+dynamic-client limits may need this one-time reconnect because existing provider
+records retain the expiry assigned when they were created. Connections authorized
+after the upgrade remain valid until explicitly revoked or recovered.
 
 ## Claude on the web and phone
 

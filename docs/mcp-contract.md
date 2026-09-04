@@ -5,8 +5,16 @@
 The endpoint and canonical resource URI are `https://<worker-host>/mcp` using
 Streamable HTTP. It supports the current MCP protocol version selected by the pinned
 SDK and rejects unsupported versions cleanly. An unauthenticated request returns 401
-with `WWW-Authenticate` pointing to protected-resource metadata. Authorization and
-token requests validate an exact RFC 8707 `resource` value matching that URI.
+with `WWW-Authenticate` pointing to protected-resource metadata. Its OAuth body and
+challenge description tell the client or LLM to ask the user to reauthorize, then
+retry the original request; repeated unauthenticated retries are explicitly
+discouraged. Authorization and token requests validate an exact RFC 8707 `resource`
+value matching that URI.
+
+Access tokens expire after one hour. Rotating refresh grants and dynamically
+registered personal clients have no time-based expiry and remain usable until owner
+revocation, authorizing-passkey revocation, or recovery. This avoids forced periodic
+logins while retaining short-lived bearer access and explicit invalidation.
 
 Wikimemory supports Dynamic Client Registration and explicitly pre-registered client
 IDs. Client ID Metadata Documents are deferred until their SSRF-safe fetch behavior

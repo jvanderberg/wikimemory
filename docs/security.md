@@ -43,7 +43,9 @@ separate design with substantial search and recovery tradeoffs.
 - Inject the canonical `/mcp` resource when a client omits RFC 8707 `resource` and
   reject every non-canonical resource value before completing authorization.
 - Use short-lived access tokens and rotating refresh tokens with the pinned OAuth
-  provider library's bounded previous-token retry window.
+  provider library's bounded previous-token retry window. Personal refresh grants
+  and dynamically registered clients have no time-based expiry; they remain valid
+  until explicit client/grant revocation, passkey revocation, or recovery.
 - Hash stored refresh tokens and browser session identifiers.
 - Enforce scopes at the domain-service boundary, not only in route handlers.
 
@@ -114,6 +116,11 @@ Allowed log fields are request ID, route/tool name, response code, duration, has
 principal ID, and coarse counts. Forbidden log fields include bodies, titles,
 summaries, metadata values, link labels, raw queries, OAuth material, cookies, and
 authorization headers.
+
+Authentication failures return OAuth-compatible safe descriptions plus structured
+recovery guidance. Missing, invalid, or expired client credentials tell an agent to
+ask the user to reauthorize and retry only after reconnection; they never expose
+token material or encourage an unauthenticated retry loop.
 
 ## Local-development safety
 
