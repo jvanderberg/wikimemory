@@ -270,10 +270,25 @@ claude mcp login wikimemory
 
 Then verify `orient` in a fresh conversation.
 
-Deployments upgraded from a version with the former 30-day refresh-grant or 90-day
-dynamic-client limits may need this one-time reconnect because existing provider
-records retain the expiry assigned when they were created. Connections authorized
-after the upgrade remain valid until explicitly revoked or recovered.
+Connections remain valid until you revoke them or perform passkey recovery.
+`wikimemory upgrade` rewrites grants and client registrations created under the
+former 30-day and 90-day limits so they also last until revocation; a repository
+deployment does the same with `npm run oauth:keep-grants` after `npm run deploy`.
+
+### Approve a connection from another device
+
+A machine without your passkey, such as a remote host driven by an agent manager,
+can still connect. Run the client's login command there as usual. The browser it
+opens waits for up to fifteen minutes. On your phone or laptop, open the Wikimemory
+web application, sign in with your passkey, and open **Manage**. The waiting request
+appears under **Connection requests** with the client name and requested scopes;
+choose **Approve**. The remote browser finishes the connection on its own and the
+client stores its tokens as normal. Approve only requests you just started
+yourself, and deny anything unexpected.
+
+If the client cannot open a browser at all, it prints the authorization URL. Open
+that URL on the remote machine's own browser session, or in any browser that can
+reach the client's localhost callback, then approve from another device as above.
 
 ## Claude on the web and phone
 

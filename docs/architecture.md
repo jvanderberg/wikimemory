@@ -56,7 +56,9 @@ one-use bootstrap secret, whose raw value is delivered only in the installer's U
 fragment. Credential public keys, monotonic counters, and WebAuthn challenges live in
 D1; hashed browser-session records and OAuth provider state live in KV. Local
 development uses a visibly marked fixed test owner. Production cannot enter that
-local path.
+local path. An MCP connection request can be approved from another signed-in
+browser: the requesting page polls a status endpoint while the owner decides from
+the management page, and the decision is stored briefly in D1 for pickup.
 
 ### Web application
 

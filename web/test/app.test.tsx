@@ -905,6 +905,182 @@ test("completes browser passkey authentication", async () => {
   await expect.poll(() => location.hash).toBe("#authorized");
 });
 
+test("follows a cross-device approval from the MCP login page", async () => {
+  history.replaceState(null, "", "/login?flowId=00000000-0000-4000-8000-000000000030");
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/auth/options")
+      return response({
+        flowId: "00000000-0000-4000-8000-000000000030",
+        kind: "mcp",
+        options: { challenge: "challenge" },
+        clientName: "Remote Codex",
+        requestedScopes: ["memory:read", "memory:write"]
+      });
+    if (url.pathname === "/api/auth/status")
+      return response({ status: "approved", redirectTo: "#remote-approved" });
+    return response({ error: "unexpected request" }, 500);
+  });
+
+  await render(<App />);
+  await expect.element(page.getByText("Remote Codex")).toBeVisible();
+  await expect.element(page.getByText(/No passkey on this device\?/u)).toBeVisible();
+  await expect.poll(() => location.hash).toBe("#remote-approved");
+});
+
+test("reports a denied or expired cross-device request", async () => {
+  history.replaceState(null, "", "/login?flowId=00000000-0000-4000-8000-000000000031");
+  let outcome = "denied";
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/auth/options")
+      return response({
+        flowId: url.searchParams.get("flowId"),
+        kind: "mcp",
+        options: { challenge: "challenge" },
+        clientName: "Remote Codex",
+        requestedScopes: ["memory:read"]
+      });
+    if (url.pathname === "/api/auth/status") return response({ status: outcome });
+    return response({ error: "unexpected request" }, 500);
+  });
+
+  const denied = await render(<App />);
+  await expect
+    .element(page.getByText("This connection request was denied from another device."))
+    .toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Continue with passkey" })).toBeDisabled();
+  await denied.unmount();
+
+  outcome = "expired";
+  history.replaceState(null, "", "/login?flowId=00000000-0000-4000-8000-000000000032");
+  await render(<App />);
+  await expect.element(page.getByText(/This connection request expired\./u)).toBeVisible();
+});
+
+test("approves and denies waiting connection requests from management", async () => {
+  history.replaceState(null, "", "/app/manage");
+  const decisions: string[] = [];
+  let waiting = [
+    {
+      flowId: "00000000-0000-4000-8000-000000000040",
+      clientName: "Codex on the remote Mac",
+      requestedScopes: ["memory:read", "memory:write"],
+      requestedAt: "2026-09-04T12:00:00Z",
+      expiresAt: "2026-09-04T12:15:00Z"
+    },
+    {
+      flowId: "00000000-0000-4000-8000-000000000041",
+      clientName: null,
+      requestedScopes: ["memory:read"],
+      requestedAt: "2026-09-04T12:01:00Z",
+      expiresAt: "2026-09-04T12:16:00Z"
+    }
+  ];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/app/session") return response(session("production"));
+    if (url.pathname === "/api/app/manage")
+      return response({
+        passkeys: [],
+        clients: [],
+        sessions: [],
+        restoreConfirmation: "wikimemory"
+      });
+    if (url.pathname === "/api/app/authorizations" && init?.method === "POST") {
+      const body = JSON.parse(String(init.body)) as { flowId: string; decision: string };
+      decisions.push(`${body.decision}:${body.flowId}`);
+      waiting = waiting.filter((request) => request.flowId !== body.flowId);
+      return response({
+        flowId: body.flowId,
+        status: body.decision === "approve" ? "approved" : "denied"
+      });
+    }
+    if (url.pathname === "/api/app/authorizations") return response({ requests: waiting });
+    return response({ error: "unexpected request" }, 500);
+  });
+
+  await render(<App />);
+  await expect.element(page.getByText("Codex on the remote Mac")).toBeVisible();
+  await expect.element(page.getByText("Unnamed MCP client")).toBeVisible();
+  await page.getByRole("button", { name: "Approve" }).first().click();
+  await expect
+    .element(page.getByText("Connection approved. The waiting client finishes on its own device."))
+    .toBeVisible();
+  await page.getByRole("button", { name: "Deny" }).click();
+  await expect.element(page.getByText("Connection request denied.")).toBeVisible();
+  await expect.element(page.getByText("No connection requests are waiting.")).toBeVisible();
+  expect(decisions).toEqual([
+    "approve:00000000-0000-4000-8000-000000000040",
+    "deny:00000000-0000-4000-8000-000000000041"
+  ]);
+});
+
+test("reports a failed connection decision", async () => {
+  history.replaceState(null, "", "/app/manage");
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/app/session") return response(session("production"));
+    if (url.pathname === "/api/app/manage")
+      return response({
+        passkeys: [],
+        clients: [],
+        sessions: [],
+        restoreConfirmation: "wikimemory"
+      });
+    if (url.pathname === "/api/app/authorizations" && init?.method === "POST")
+      return response({ error: "not_found", message: "This connection request expired" }, 404);
+    if (url.pathname === "/api/app/authorizations")
+      return response({
+        requests: [
+          {
+            flowId: "00000000-0000-4000-8000-000000000042",
+            clientName: "Stale client",
+            requestedScopes: ["memory:read"],
+            requestedAt: "2026-09-04T12:00:00Z",
+            expiresAt: "2026-09-04T12:15:00Z"
+          }
+        ]
+      });
+    return response({ error: "unexpected request" }, 500);
+  });
+
+  await render(<App />);
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect.element(page.getByText("This connection request expired")).toBeVisible();
+});
+
+test("shows a waiting-connection banner outside management", async () => {
+  history.replaceState(null, "", "/app");
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/app/session") return response(session("production"));
+    if (url.pathname === "/api/app/documents") return response({ items: [] });
+    if (url.pathname === "/api/app/authorizations")
+      return response({
+        requests: [
+          {
+            flowId: "00000000-0000-4000-8000-000000000043",
+            clientName: "Codex",
+            requestedScopes: ["memory:read"],
+            requestedAt: "2026-09-04T12:00:00Z",
+            expiresAt: "2026-09-04T12:15:00Z"
+          }
+        ]
+      });
+    return response({ error: "unexpected request" }, 500);
+  });
+
+  await render(<App />);
+  await expect
+    .element(
+      page.getByRole("link", {
+        name: "An MCP client is waiting for you to approve its connection."
+      })
+    )
+    .toBeVisible();
+});
+
 test("approves a local MCP authorization", async () => {
   history.replaceState(null, "", "/local-authorize?client=coverage");
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {

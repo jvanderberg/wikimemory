@@ -1,6 +1,6 @@
 {
   "version": "0.3.3",
-  "schemaVersion": "0004_credential_bound_registration_tokens.sql",
+  "schemaVersion": "0005_remote_authorization.sql",
   "migrations": [
     {
       "name": "0001_initial.sql",
@@ -17,6 +17,10 @@
     {
       "name": "0004_credential_bound_registration_tokens.sql",
       "sha256": "fb263e95019513b8e00b55da675af5a42bd0715214ef1855dc7e5ba8b8bf55f3"
+    },
+    {
+      "name": "0005_remote_authorization.sql",
+      "sha256": "ebbb45bf70692c691aeeabb18cda4282e016c66463dd8f8cf51cd6cb85a45a84"
     }
   ]
 }

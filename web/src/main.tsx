@@ -10,6 +10,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useRef,
   useState
 } from "react";
 import { createRoot } from "react-dom/client";
@@ -186,6 +187,23 @@ const localAuthorizationEnvelope = z.object({
   clientName: z.string(),
   requestedScopes: z.array(z.string())
 });
+const authorizationStatusSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.enum(["pending", "denied", "expired"]) }),
+  z.object({ status: z.literal("approved"), redirectTo: z.string() })
+]);
+const pendingAuthorizationsSchema = z.object({
+  requests: z.array(
+    z.object({
+      flowId: z.string(),
+      clientName: z.string().nullable(),
+      requestedScopes: z.array(z.string()),
+      requestedAt: z.string(),
+      expiresAt: z.string()
+    })
+  )
+});
+const AUTHORIZATION_POLL_MS = 3000;
+const REAUTHENTICATION_LOGIN = "/app/login?next=%2Fapp%2Fmanage";
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -205,18 +223,30 @@ function authenticationOptions(value: unknown): value is PublicKeyCredentialRequ
   return record(value) && typeof value["challenge"] === "string";
 }
 
+class ApiError extends Error {
+  readonly code: string | null;
+
+  constructor(message: string, code: string | null) {
+    super(message);
+    this.code = code;
+  }
+}
+
 async function json(response: Response): Promise<unknown> {
   const body: unknown = await response.json();
   if (!response.ok) {
+    const code = record(body) && typeof body["error"] === "string" ? body["error"] : null;
     const message =
       record(body) && typeof body["message"] === "string"
         ? body["message"]
-        : record(body) && typeof body["error"] === "string"
-          ? body["error"]
-          : `HTTP ${response.status}`;
-    throw new Error(message);
+        : (code ?? `HTTP ${response.status}`);
+    throw new ApiError(message, code);
   }
   return body;
+}
+
+function requiresReauthentication(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "reauthentication_required";
 }
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
@@ -364,6 +394,23 @@ function useLoad<T>(
   return { value, error, reload };
 }
 
+function PendingAuthorizationBanner(): React.JSX.Element | null {
+  const pending = useLoad(async () =>
+    pendingAuthorizationsSchema.parse(await api("/api/app/authorizations"))
+  );
+  const count = pending.value?.requests.length ?? 0;
+  if (count === 0) return null;
+  return (
+    <p className="notice">
+      <a href="/app/manage">
+        {count === 1
+          ? "An MCP client is waiting for you to approve its connection."
+          : `${count} MCP clients are waiting for you to approve their connections.`}
+      </a>
+    </p>
+  );
+}
+
 function Shell({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
     <>
@@ -376,7 +423,10 @@ function Shell({ children }: { children: React.ReactNode }): React.JSX.Element {
         <a href="/app/history">Recent</a>
         <a href="/app/manage">Manage</a>
       </header>
-      <main>{children}</main>
+      <main>
+        {location.pathname === "/app/manage" ? null : <PendingAuthorizationBanner />}
+        {children}
+      </main>
     </>
   );
 }
@@ -493,8 +543,43 @@ function Login(): React.JSX.Element {
     flowId ?? ""
   );
   const [status, setStatus] = useState("Waiting for authorization details…");
+  const [remote, setRemote] = useState<"denied" | "expired" | null>(null);
+  const localCeremony = useRef(false);
+  const flowKind = flow.value?.kind;
+  const pollFlowId = flowKind === "mcp" ? flow.value?.flowId : undefined;
+  useEffect(() => {
+    if (pollFlowId === undefined) return;
+    let active = true;
+    let timer: number | undefined;
+    async function poll(): Promise<void> {
+      let outcome: z.infer<typeof authorizationStatusSchema> = { status: "pending" };
+      try {
+        outcome = authorizationStatusSchema.parse(
+          await api(`/api/auth/status?flowId=${encodeURIComponent(pollFlowId ?? "")}`)
+        );
+      } catch {
+        // A transient failure simply polls again.
+      }
+      if (!active || localCeremony.current) return;
+      if (outcome.status === "approved") {
+        location.assign(outcome.redirectTo);
+        return;
+      }
+      if (outcome.status === "pending") {
+        timer = window.setTimeout(() => void poll(), AUTHORIZATION_POLL_MS);
+        return;
+      }
+      setRemote(outcome.status);
+    }
+    void poll();
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [pollFlowId]);
   async function authenticate(): Promise<void> {
     if (flow.value === null || !authenticationOptions(flow.value.options)) return;
+    localCeremony.current = true;
     setStatus("Waiting for your passkey…");
     try {
       const response = await startAuthentication({ optionsJSON: flow.value.options });
@@ -506,9 +591,16 @@ function Login(): React.JSX.Element {
       );
       location.assign(result.redirectTo);
     } catch (error) {
+      localCeremony.current = false;
       setStatus(error instanceof Error ? error.message : "Authentication failed");
     }
   }
+  const remoteMessage =
+    remote === "denied"
+      ? "This connection request was denied from another device."
+      : remote === "expired"
+        ? "This connection request expired. Start the connection again from your MCP client."
+        : null;
   return (
     <main className="center">
       <section className="panel">
@@ -527,10 +619,20 @@ function Login(): React.JSX.Element {
         ) : (
           <p>Sign in to browse your memory.</p>
         )}
-        <button disabled={flow.value === null} onClick={() => void authenticate()}>
+        <button
+          disabled={flow.value === null || remote !== null}
+          onClick={() => void authenticate()}
+        >
           Continue with passkey
         </button>
-        <p className="muted">{flow.error ?? status}</p>
+        <p className="muted">{flow.error ?? remoteMessage ?? status}</p>
+        {flow.value?.kind === "mcp" && remote === null ? (
+          <p className="muted">
+            No passkey on this device? Open <strong>Manage Wikimemory</strong> in any browser that
+            has one, such as your phone or laptop, and approve this request there. This page
+            continues automatically once you do.
+          </p>
+        ) : null}
       </section>
     </main>
   );
@@ -977,10 +1079,35 @@ function Manage({ passkeysEnabled }: { passkeysEnabled: boolean }): React.JSX.El
   const [replace, setReplace] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [archiveBusy, setArchiveBusy] = useState(false);
+  const pending = useLoad(async () =>
+    pendingAuthorizationsSchema.parse(await api("/api/app/authorizations"))
+  );
   async function mutate(method: "POST" | "DELETE", path: string, body: object): Promise<unknown> {
-    const result = await api(path, { method, body: JSON.stringify(body) });
-    data.reload();
-    return result;
+    try {
+      const result = await api(path, { method, body: JSON.stringify(body) });
+      data.reload();
+      return result;
+    } catch (error) {
+      if (requiresReauthentication(error)) {
+        location.assign(REAUTHENTICATION_LOGIN);
+        return null;
+      }
+      throw error;
+    }
+  }
+  async function decide(flowId: string, decision: "approve" | "deny"): Promise<void> {
+    try {
+      await mutate("POST", "/api/app/authorizations", { flowId, decision });
+      setNotice(
+        decision === "approve"
+          ? "Connection approved. The waiting client finishes on its own device."
+          : "Connection request denied."
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not update the request");
+    } finally {
+      pending.reload();
+    }
   }
   async function inspectBackup(): Promise<void> {
     setArchiveBusy(true);
@@ -1077,6 +1204,34 @@ function Manage({ passkeysEnabled }: { passkeysEnabled: boolean }): React.JSX.El
     <>
       <h1>Manage Wikimemory</h1>
       {notice ? <p className="notice">{notice}</p> : null}
+      <section className="panel">
+        <h2>Connection requests</h2>
+        <p className="muted">
+          MCP clients that started connecting from a device without your passkey wait here for
+          approval. Approve only requests you just started yourself.
+        </p>
+        {pending.value === null ? (
+          <p className="muted">{pending.error ?? "Loading…"}</p>
+        ) : pending.value.requests.length === 0 ? (
+          <p className="muted">No connection requests are waiting.</p>
+        ) : (
+          <ol className="list">
+            {pending.value.requests.map((request) => (
+              <li key={request.flowId}>
+                <strong>{request.clientName ?? "Unnamed MCP client"}</strong>
+                <small>
+                  {request.requestedScopes.join(" ")} · requested {request.requestedAt} · expires{" "}
+                  {request.expiresAt}
+                </small>
+                <button onClick={() => void decide(request.flowId, "approve")}>Approve</button>
+                <button className="danger" onClick={() => void decide(request.flowId, "deny")}>
+                  Deny
+                </button>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
       {passkeysEnabled ? (
         <section className="panel">
           <h2>Passkeys</h2>

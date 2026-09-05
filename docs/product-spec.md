@@ -149,6 +149,14 @@ owner explicitly revokes them or performs passkey recovery. Access tokens remain
 short-lived. Regular use must not force periodic reauthorization merely because an
 absolute client-registration or refresh-grant timer elapsed.
 
+An MCP connection request may be approved from a different device than the one
+running the client. The browser that the client opens waits for up to fifteen
+minutes while the owner approves or denies the request from **Manage** in any
+signed-in Wikimemory browser; approval requires passkey authentication within the
+last five minutes and issues the client's authorization code exactly as a
+same-device passkey ceremony would. This keeps headless or remotely managed machines
+connectable without screen sharing.
+
 Normal agent connections request `memory:read memory:write`. Administrative MCP
 connections explicitly request all three scopes; Wikimemory does not depend on
 incremental scope elevation. Browser administration is authorized by owner membership

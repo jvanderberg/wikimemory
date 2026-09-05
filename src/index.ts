@@ -10,6 +10,7 @@ import { wikimemoryOAuthErrorResponse } from "./auth/oauth-errors";
 import {
   beginPasskeyAuthorization,
   passkeyAuthorizationOptions,
+  passkeyAuthorizationStatus,
   productionWebOwner,
   registrationOptions,
   registrationVerify,
@@ -40,6 +41,8 @@ const webHandler = {
       return safeJson(() => approveLocalAuthorization(request, env));
     if (url.pathname === "/api/auth/options" && request.method === "GET")
       return safeJson(() => passkeyAuthorizationOptions(request, env));
+    if (url.pathname === "/api/auth/status" && request.method === "GET")
+      return safeJson(() => passkeyAuthorizationStatus(request, env));
     if (url.pathname === "/auth/passkey/verify" && request.method === "POST")
       return safeJson(() => verifyPasskeyAuthorization(request, env));
     if (url.pathname === "/setup/options" && request.method === "POST")
@@ -68,7 +71,8 @@ const webHandler = {
         env.DB.prepare("SELECT 1 FROM passkey_credentials LIMIT 1"),
         env.DB.prepare("SELECT 1 FROM passkey_bootstrap LIMIT 1"),
         env.DB.prepare("SELECT 1 FROM passkey_challenges LIMIT 1"),
-        env.DB.prepare("SELECT 1 FROM passkey_registration_tokens LIMIT 1")
+        env.DB.prepare("SELECT 1 FROM passkey_registration_tokens LIMIT 1"),
+        env.DB.prepare("SELECT 1 FROM authorization_decisions LIMIT 1")
       ]);
       const schema = await env.DB.prepare(
         "SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1"

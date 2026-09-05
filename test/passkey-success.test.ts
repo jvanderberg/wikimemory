@@ -308,4 +308,37 @@ describe("successful passkey lifecycle", () => {
     );
     expect(completed.status).toBe(403);
   });
+
+  it("returns a browser login to the in-app page that requested it", async () => {
+    const appEnv = productionEnv("a".repeat(64));
+    async function login(next: string): Promise<string> {
+      const started = await beginPasskeyAuthorization(
+        new Request(`${BASE_URL}/app/login?next=${encodeURIComponent(next)}`),
+        appEnv,
+        "web"
+      );
+      const loginFlowId = new URL(started.headers.get("location") ?? BASE_URL).searchParams.get(
+        "flowId"
+      );
+      const current = await env.DB.prepare(
+        "SELECT counter FROM passkey_credentials WHERE credential_id = ?"
+      )
+        .bind(browserRegistrationResponse.id)
+        .first<{ counter: number }>();
+      const completed = await verifyPasskeyAuthorization(
+        post("/auth/passkey/verify", {
+          flowId: loginFlowId,
+          response: browserAuthenticationResponse
+        }),
+        appEnv,
+        () => Promise.resolve(verifiedAuthentication((current?.counter ?? 0) + 1))
+      );
+      expect(completed.status).toBe(200);
+      return (await completed.json<{ redirectTo: string }>()).redirectTo;
+    }
+    await expect(login("/app/manage")).resolves.toBe("/app/manage");
+    await expect(login("https://evil.example/app")).resolves.toBe("/app");
+    await expect(login("//evil.example/app")).resolves.toBe("/app");
+    await expect(login("/setup")).resolves.toBe("/app");
+  });
 });

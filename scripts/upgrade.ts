@@ -12,6 +12,7 @@ import {
   writeDeploymentRecord
 } from "./deployment-record.ts";
 import { DEPLOYMENT_VERIFY_ATTEMPTS, deploymentVerifyDelay } from "./deployment-wait.ts";
+import { keepOAuthGrants, keptSummary } from "./oauth-grants.ts";
 import { packageRoot } from "./package-root.ts";
 import { type CommandResult, commandFailureMessage } from "./subprocess.ts";
 import { isReactApplicationShell } from "./web-shell.ts";
@@ -399,8 +400,10 @@ export async function runUpgrade(args: string[]): Promise<void> {
       throw new Error(commandFailureMessage("Worker deployment", deployed));
     console.log("  Verifying deployment…");
     await verifyRelease(record.origin, manifest);
+    console.log("  Keeping existing MCP connections…");
+    const kept = await keepOAuthGrants(common, command);
     await writeDeploymentRecord({ ...record, installedVersion: manifest.version }, recordPath);
-    console.log(`\n${readySummary(manifest.version)}`);
+    console.log(`\n${readySummary(manifest.version)}\n${keptSummary(kept)}`);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

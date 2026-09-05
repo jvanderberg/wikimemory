@@ -29,6 +29,10 @@ const PRINCIPAL_ID = PASSKEY_OWNER_ID;
 const WORKSPACE_ID = "primary-workspace";
 const SESSION_PREFIX = "web-session:";
 const FLOW_TTL_SECONDS = 300;
+// MCP connection requests can be approved from another device, so they wait
+// long enough for the owner to reach a browser that holds a passkey.
+const MCP_FLOW_TTL_SECONDS = 900;
+const WEB_RETURN_PATH = /^\/app(?:\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*)?$/u;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const TRANSPORT_SCHEMA = z.enum(["ble", "cable", "hybrid", "internal", "nfc", "smart-card", "usb"]);
 const ATTACHMENT_SCHEMA = z.enum(["cross-platform", "platform"]);
@@ -84,13 +88,35 @@ const SETUP_PAYLOAD_SCHEMA = z.object({
   label: PASSKEY_LABEL_SCHEMA
 });
 const REGISTRATION_PAYLOAD_SCHEMA = z.object({ label: PASSKEY_LABEL_SCHEMA });
+const MEMORY_SCOPE_SCHEMA = z.enum(["memory:read", "memory:write", "memory:admin"]);
 const AUTH_FLOW_PAYLOAD_SCHEMA = z.object({
   kind: z.enum(["mcp", "web"]),
   options: z.unknown(),
   auth: AUTH_REQUEST_SCHEMA.optional(),
   clientName: z.string().optional(),
-  requestedScopes: z.array(z.enum(["memory:read", "memory:write", "memory:admin"])).optional()
+  requestedScopes: z.array(MEMORY_SCOPE_SCHEMA).optional(),
+  next: z.string().regex(WEB_RETURN_PATH).optional()
 });
+const AUTHORIZATION_DECISION_SCHEMA = z.enum(["approve", "deny"]);
+
+export type AuthorizationDecision = z.infer<typeof AUTHORIZATION_DECISION_SCHEMA>;
+
+export interface PendingAuthorization {
+  flowId: string;
+  clientName: string | null;
+  requestedScopes: MemoryScope[];
+  requestedAt: string;
+  expiresAt: string;
+}
+
+export interface AuthorizationApprover {
+  credentialId: string;
+  authenticatedAt: string;
+}
+
+export type AuthorizationStatus =
+  | { status: "pending" | "denied" | "expired" }
+  | { status: "approved"; redirectTo: string };
 
 interface CredentialRow {
   credential_id: string;
@@ -220,8 +246,13 @@ function transports(value: string): AuthenticatorTransportFuture[] {
   return TRANSPORTS_SCHEMA.parse(JSON.parse(value));
 }
 
-function expiry(): string {
-  return new Date(Date.now() + FLOW_TTL_SECONDS * 1000).toISOString();
+function expiry(ttlSeconds = FLOW_TTL_SECONDS): string {
+  return new Date(Date.now() + ttlSeconds * 1000).toISOString();
+}
+
+function webReturnPath(request: Request): string | undefined {
+  const next = new URL(request.url).searchParams.get("next");
+  return next !== null && WEB_RETURN_PATH.test(next) && !next.startsWith("//") ? next : undefined;
 }
 
 function passkeyUserId(): Uint8Array<ArrayBuffer> {
@@ -580,12 +611,12 @@ export async function beginPasskeyAuthorization(
     }))
   });
   const flowId = crypto.randomUUID();
+  const next = kind === "web" ? webReturnPath(request) : undefined;
+  const createdAt = new Date().toISOString();
   await env.DB.batch([
-    env.DB.prepare("DELETE FROM passkey_challenges WHERE expires_at <= ?").bind(
-      new Date().toISOString()
-    ),
-    env.DB.prepare(`INSERT INTO passkey_challenges(flow_id, kind, challenge, payload_json, expires_at)
-      VALUES (?, ?, ?, ?, ?)`).bind(
+    env.DB.prepare("DELETE FROM passkey_challenges WHERE expires_at <= ?").bind(createdAt),
+    env.DB.prepare(`INSERT INTO passkey_challenges(flow_id, kind, challenge, payload_json, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).bind(
       flowId,
       kind,
       options.challenge,
@@ -596,9 +627,11 @@ export async function beginPasskeyAuthorization(
         ...(client?.clientName === undefined && client?.clientId === undefined
           ? {}
           : { clientName: client.clientName ?? client.clientId }),
-        ...(requestedScopes === undefined ? {} : { requestedScopes })
+        ...(requestedScopes === undefined ? {} : { requestedScopes }),
+        ...(next === undefined ? {} : { next })
       }),
-      expiry()
+      expiry(kind === "mcp" ? MCP_FLOW_TTL_SECONDS : FLOW_TTL_SECONDS),
+      createdAt
     )
   ]);
   return Response.redirect(
@@ -681,34 +714,14 @@ export async function verifyPasskeyAuthorization(
   if (updated.meta.changes !== 1)
     return Response.json({ error: "This passkey assertion was already used." }, { status: 409 });
   if (flowKind === "mcp") {
-    if (flow.payload_json === null)
-      throw new OAuthError("invalid_request", {
-        description: "MCP authorization state is missing"
-      });
-    const payload = AUTH_FLOW_PAYLOAD_SCHEMA.parse(JSON.parse(flow.payload_json));
-    if (payload.auth === undefined)
-      throw new OAuthError("invalid_request", {
-        description: "MCP authorization state is missing"
-      });
-    const auth = bindWikimemoryAuthorizationResource(authRequest(payload.auth), env.APP_BASE_URL);
-    const granted = scopes(auth);
-    const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-      request: auth,
-      userId: PRINCIPAL_ID,
-      revokeExistingGrants: false,
-      metadata: { identity: "passkey" },
-      scope: granted,
-      props: {
-        workspaceId: WORKSPACE_ID,
-        principalId: PRINCIPAL_ID,
-        clientId: auth.clientId,
-        scopes: granted,
-        authenticatedAt,
-        credentialId: row.credential_id
-      }
+    const redirectTo = await completeMcpAuthorization(env, flow.payload_json, {
+      credentialId: row.credential_id,
+      authenticatedAt
     });
     return Response.json({ redirectTo });
   }
+  const returnTo =
+    flow.payload_json === null ? undefined : webReturnPathFromPayload(flow.payload_json);
   const sessionId = crypto.randomUUID();
   const session = {
     principalId: PRINCIPAL_ID,
@@ -721,13 +734,147 @@ export async function verifyPasskeyAuthorization(
     expirationTtl: 86_400
   });
   return Response.json(
-    { redirectTo: "/app" },
+    { redirectTo: returnTo ?? "/app" },
     {
       headers: {
         "set-cookie": `wm_web_session=${sessionId}; HttpOnly; Secure; Path=/; SameSite=Lax; Max-Age=86400`
       }
     }
   );
+}
+
+function webReturnPathFromPayload(payloadJson: string): string | undefined {
+  return AUTH_FLOW_PAYLOAD_SCHEMA.parse(JSON.parse(payloadJson)).next;
+}
+
+async function completeMcpAuthorization(
+  env: Env,
+  payloadJson: string | null,
+  approver: AuthorizationApprover,
+  approval: "same-device" | "cross-device" = "same-device"
+): Promise<string> {
+  if (payloadJson === null)
+    throw new OAuthError("invalid_request", { description: "MCP authorization state is missing" });
+  const payload = AUTH_FLOW_PAYLOAD_SCHEMA.parse(JSON.parse(payloadJson));
+  if (payload.auth === undefined)
+    throw new OAuthError("invalid_request", { description: "MCP authorization state is missing" });
+  const auth = bindWikimemoryAuthorizationResource(authRequest(payload.auth), env.APP_BASE_URL);
+  const granted = scopes(auth);
+  const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+    request: auth,
+    userId: PRINCIPAL_ID,
+    revokeExistingGrants: false,
+    metadata: { identity: "passkey", approval },
+    scope: granted,
+    props: {
+      workspaceId: WORKSPACE_ID,
+      principalId: PRINCIPAL_ID,
+      clientId: auth.clientId,
+      scopes: granted,
+      authenticatedAt: approver.authenticatedAt,
+      credentialId: approver.credentialId
+    }
+  });
+  return redirectTo;
+}
+
+/**
+ * Reports whether an MCP connection request is still waiting, was approved or
+ * denied from another device, or expired. The browser that opened the request
+ * polls this until it can follow the client's redirect.
+ */
+export async function passkeyAuthorizationStatus(request: Request, env: Env): Promise<Response> {
+  const flowId = new URL(request.url).searchParams.get("flowId");
+  if (flowId === null || !z.uuid().safeParse(flowId).success)
+    throw new DomainError("validation_failed", "Invalid authentication flow");
+  const now = new Date().toISOString();
+  const decision = await env.DB.prepare(`DELETE FROM authorization_decisions
+    WHERE flow_id = ? AND expires_at > ?
+    RETURNING status, redirect_to`)
+    .bind(flowId, now)
+    .first<{ status: "approved" | "denied"; redirect_to: string | null }>();
+  let status: AuthorizationStatus;
+  if (decision?.status === "approved" && decision.redirect_to !== null)
+    status = { status: "approved", redirectTo: decision.redirect_to };
+  else if (decision !== null) status = { status: "denied" };
+  else {
+    const waiting = await env.DB.prepare(`SELECT 1 AS present FROM passkey_challenges
+      WHERE flow_id = ? AND kind = 'mcp' AND expires_at > ?`)
+      .bind(flowId, now)
+      .first<{ present: number }>();
+    status = { status: waiting === null ? "expired" : "pending" };
+  }
+  return Response.json(status, { headers: { "cache-control": "no-store" } });
+}
+
+export async function listPendingAuthorizations(env: DatabaseEnv): Promise<PendingAuthorization[]> {
+  const result = await env.DB.prepare(`SELECT flow_id, payload_json, created_at, expires_at
+    FROM passkey_challenges WHERE kind = 'mcp' AND expires_at > ?
+    ORDER BY created_at, flow_id`)
+    .bind(new Date().toISOString())
+    .all<{
+      flow_id: string;
+      payload_json: string | null;
+      created_at: string | null;
+      expires_at: string;
+    }>();
+  return result.results.flatMap((row) => {
+    const parsed =
+      row.payload_json === null
+        ? null
+        : AUTH_FLOW_PAYLOAD_SCHEMA.safeParse(JSON.parse(row.payload_json));
+    if (parsed === null || !parsed.success) return [];
+    return [
+      {
+        flowId: row.flow_id,
+        clientName: parsed.data.clientName ?? null,
+        requestedScopes: parsed.data.requestedScopes ?? [],
+        requestedAt:
+          row.created_at ??
+          new Date(Date.parse(row.expires_at) - MCP_FLOW_TTL_SECONDS * 1000).toISOString(),
+        expiresAt: row.expires_at
+      }
+    ];
+  });
+}
+
+/**
+ * Approves or denies a waiting MCP connection request on behalf of an owner who
+ * authenticated with a passkey in another browser. Approval issues the OAuth
+ * code exactly as a same-device passkey ceremony would; the waiting browser
+ * collects the redirect through the status endpoint.
+ */
+export async function decidePendingAuthorization(
+  env: Env,
+  flowId: string,
+  decision: AuthorizationDecision,
+  approver: AuthorizationApprover
+): Promise<{ flowId: string; status: "approved" | "denied" }> {
+  const flow = await consumeChallenge(env, flowId, "mcp");
+  if (flow === null)
+    throw new DomainError("not_found", "This connection request expired or was already completed");
+  const redirectTo =
+    decision === "approve"
+      ? await completeMcpAuthorization(env, flow.payload_json, approver, "cross-device")
+      : null;
+  const status = decision === "approve" ? "approved" : "denied";
+  const decidedAt = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM authorization_decisions WHERE expires_at <= ?").bind(decidedAt),
+    env.DB.prepare(`INSERT INTO authorization_decisions(flow_id, status, redirect_to, decided_at, expires_at)
+      VALUES (?, ?, ?, ?, ?)`).bind(
+      flowId,
+      status,
+      redirectTo,
+      decidedAt,
+      expiry(MCP_FLOW_TTL_SECONDS)
+    )
+  ]);
+  return { flowId, status };
+}
+
+export function parseAuthorizationDecision(value: unknown): AuthorizationDecision {
+  return AUTHORIZATION_DECISION_SCHEMA.parse(value);
 }
 
 async function sessionStorageKey(sessionId: string): Promise<string> {

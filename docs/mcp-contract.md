@@ -14,7 +14,10 @@ value matching that URI.
 Access tokens expire after one hour. Rotating refresh grants and dynamically
 registered personal clients have no time-based expiry and remain usable until owner
 revocation, authorizing-passkey revocation, or recovery. This avoids forced periodic
-logins while retaining short-lived bearer access and explicit invalidation.
+logins while retaining short-lived bearer access and explicit invalidation. The
+authorization page a client opens can be approved from another signed-in Wikimemory
+browser, so clients on machines without the owner's passkey still complete the
+standard authorization-code flow.
 
 Wikimemory supports Dynamic Client Registration and explicitly pre-registered client
 IDs. Client ID Metadata Documents are deferred until their SSRF-safe fetch behavior

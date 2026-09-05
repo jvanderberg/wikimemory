@@ -188,6 +188,23 @@ provider emits and tests the equivalent timestamp.
 - Passkey private keys never reach Wikimemory. D1 contains only credential IDs,
   public keys, counters, transport hints, and backup/device classifications.
 
+### Cross-device connection approval
+
+- A waiting MCP connection request is a single-use D1 challenge row that expires
+  after fifteen minutes. Listing it requires an owner browser session; approving or
+  denying it additionally requires passkey authentication within five minutes and a
+  same-origin request, the same bar as passkey management.
+- Approval consumes the challenge atomically, so a request can be decided once.
+  The resulting authorization code is bound to the client's PKCE verifier and
+  redirect URI and is handed only to the browser that knows the request's flow ID;
+  the stored decision is deleted on first pickup or after fifteen minutes.
+- The approving browser sees the client name, requested scopes, and request time,
+  and is told to approve only requests the owner just started. Approving a stranger's
+  request would grant that client memory access, so the owner's judgement is the
+  control; grants remain individually revocable from the same page.
+- The waiting page never receives owner-session material, and the polling endpoint
+  reports only pending, approved, denied, or expired.
+
 Cloudflare account control is therefore the recovery authority. Recovery deliberately
 invalidates the old credentials even when the incident is merely a lost device; the
 owner must reconnect MCP clients and sign browser sessions in again.
@@ -195,6 +212,8 @@ owner must reconnect MCP clients and sign browser sessions in again.
 ## Security acceptance tests
 
 - unknown passkeys and wrong workspaces are denied;
+- cross-device approvals require a recently authenticated owner session, decide a
+  request once, and expire their stored outcome;
 - missing, expired, incorrectly scoped, and wrong-audience tokens are denied;
 - OAuth state, redirect URI, and PKCE failures are denied;
 - wrong origin/RP ID, missing user verification, expired challenges, and reused

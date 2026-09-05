@@ -8,8 +8,11 @@ import {
 import { restoreConfirmation } from "../archive/web";
 import { ensureLocalOwner, localOwnerContext } from "../auth/local";
 import {
+  decidePendingAuthorization,
   endProductionWebSession,
+  listPendingAuthorizations,
   listProductionWebSessions,
+  parseAuthorizationDecision,
   productionWebOwner,
   revokeProductionSessionsForCredentialBestEffort,
   revokeProductionWebSession
@@ -194,6 +197,11 @@ export async function handleWebApi(request: Request, env: Env): Promise<Response
     }
     if (url.pathname === "/api/app/manage" && request.method === "GET")
       return await manage(request, env, context);
+    if (url.pathname === "/api/app/authorizations" && request.method === "GET")
+      return Response.json(
+        { requests: await listPendingAuthorizations(env) },
+        { headers: { "cache-control": "no-store" } }
+      );
     const admin = new AdminService(env.DB);
     if (url.pathname === "/api/app/backup/snapshot" && request.method === "GET")
       return Response.json(await admin.archiveFingerprint(context, LATEST_SCHEMA_VERSION), {
@@ -325,6 +333,36 @@ export async function handleWebApi(request: Request, env: Env): Promise<Response
         credentialId
       );
       return Response.json({ revoked: body.credentialRef, sessionCleanupComplete });
+    }
+    if (
+      url.pathname === "/api/app/authorizations" &&
+      request.method === "POST" &&
+      env.APP_ENV === "production"
+    ) {
+      requireRecentPasskeyAuthentication(context.reauthenticatedAt);
+      const body: unknown = await request.json();
+      if (
+        typeof body !== "object" ||
+        body === null ||
+        !("flowId" in body) ||
+        typeof body.flowId !== "string" ||
+        !z.uuid().safeParse(body.flowId).success ||
+        !("decision" in body)
+      )
+        throw new DomainError("validation_failed", "Connection request reference is missing");
+      if (context.credentialId === undefined)
+        throw new DomainError("forbidden", "The authorizing passkey is no longer valid");
+      return Response.json(
+        await decidePendingAuthorization(
+          env,
+          body.flowId,
+          parseAuthorizationDecision(body.decision),
+          {
+            credentialId: context.credentialId,
+            authenticatedAt: context.reauthenticatedAt
+          }
+        )
+      );
     }
     if (url.pathname === "/api/app/grants" && request.method === "DELETE") {
       const body: unknown = await request.json();
