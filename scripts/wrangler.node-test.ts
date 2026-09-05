@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import process from "node:process";
 import { describe, it } from "node:test";
+import { pathToFileURL } from "node:url";
 import { runWrangler, wranglerCliPath, wranglerInvocation } from "./wrangler.ts";
 
 await describe("pinned Wrangler execution", async () => {
@@ -24,11 +25,12 @@ await describe("pinned Wrangler execution", async () => {
   });
 
   await it("resolves Wrangler relative to its package metadata", () => {
-    const resolved = wranglerCliPath(
-      () => "file:///tmp/example/node_modules/wrangler/package.json"
+    const packageRoot = resolve("/tmp/example/node_modules/wrangler");
+    const resolved = wranglerCliPath(() =>
+      pathToFileURL(join(packageRoot, "package.json")).toString()
     );
 
-    assert.equal(resolved, "/tmp/example/node_modules/wrangler/bin/wrangler.js");
+    assert.equal(resolved, join(packageRoot, "bin", "wrangler.js"));
   });
 
   await it("keeps every Cloudflare lifecycle free of nested npx execution", async () => {
